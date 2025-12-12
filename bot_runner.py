@@ -3,28 +3,43 @@ import time
 import threading
 import schedule
 from crypto_trading_agent import CryptoTradingAgent
-from server import app  # импортируем Flask сервер
+from server import app
 
 def run_trading_bot():
+    print("🚀 Запуск торгового анализа...")
+
     bot_token = os.getenv('BOT_TOKEN')
     chat_id = os.getenv('CHAT_ID')
     cryptos = os.getenv('CRYPTOS', 'bitcoin,ethereum').split(',')
+
+    print("Значения переменных окружения:")
+    print("BOT_TOKEN:", bot_token)
+    print("CHAT_ID:", chat_id)
+    print("CRYPTOS:", cryptos)
 
     if not bot_token or not chat_id:
         print("❌ Переменные окружения не установлены!")
         return
 
-    agent = CryptoTradingAgent(
-        telegram_bot_token=bot_token,
-        telegram_chat_id=chat_id
-    )
+    try:
+        agent = CryptoTradingAgent(
+            telegram_bot_token=bot_token,
+            telegram_chat_id=chat_id
+        )
 
-    agent.run_analysis(cryptos)
-    print("✅ Анализ завершён")
+        agent.run_analysis(cryptos)
+
+        print("✅ Анализ завершен и сообщения отправлены!")
+
+    except Exception as e:
+        print("❌ Ошибка выполнения бота:", e)
 
 
 def start_scheduler():
+    print("📅 Планировщик запущен. Анализ каждые 10 минут.")
     schedule.every(10).minutes.do(run_trading_bot)
+
+    # Первый запуск сразу
     run_trading_bot()
 
     while True:
@@ -32,9 +47,13 @@ def start_scheduler():
         time.sleep(1)
 
 
-# --- Запускаем scheduler в отдельном потоке ---
-threading.Thread(target=start_scheduler, daemon=True).start()
+# Запускаем scheduler перед Flask
+scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+scheduler_thread.start()
 
-# --- Запускаем Flask-сервер (держит Render живым) ---
+print("🔥 Scheduler поток запущен!")
+
+# Запускаем Flask-сервер
 if __name__ == "__main__":
+    print("🌐 Запускается Flask веб-сервер...")
     app.run(host="0.0.0.0", port=10000)
