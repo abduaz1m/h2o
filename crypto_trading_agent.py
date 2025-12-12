@@ -26,8 +26,8 @@ class CryptoTradingAgent:
         Инициализация агента
         
         Args:
-            telegram_bot_token: 8541003949:"AAFFwvo3kiTERGoD8iOenkIOgfEFyIJXRwc",
-            telegram_chat_id:"150858460"
+            telegram_bot_token: Токен Telegram бота
+            telegram_chat_id: ID чата для отправки сообщений
         """
         self.telegram_bot_token = telegram_bot_token or "YOUR_BOT_TOKEN"
         self.telegram_chat_id = telegram_chat_id or "YOUR_CHAT_ID"
