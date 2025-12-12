@@ -6,8 +6,8 @@ from crypto_trading_agent import CryptoTradingAgent
 from server import app  # импортируем Flask сервер
 
 def run_trading_bot():
-    bot_token = os.getenv('8541003949:AAFFwvo3kiTERGoD8iOenkIOgfEFyIJXRwc')
-    chat_id = os.getenv('150858460')
+    bot_token = os.getenv('BOT_TOKEN')
+    chat_id = os.getenv('CHAT_ID')
     cryptos = os.getenv('CRYPTOS', 'bitcoin,ethereum').split(',')
 
     if not bot_token or not chat_id:
