@@ -10,33 +10,23 @@ class CryptoTradingAgent:
     """
 
     def __init__(self, telegram_bot_token=None, telegram_chat_id=None):
-        # Теперь бот использует переменные окружения,
-        # которые ты указываешь в Render.
         self.telegram_bot_token = telegram_bot_token
         self.telegram_chat_id = telegram_chat_id
         self.base_url = "https://api.binance.com/api/v3/ticker/24hr"
 
     def get_crypto_data(self, symbol="BTCUSDT"):
-        """
-        Получает данные с Binance:
-        - цена
-        - изменение за 24 часа
-        - объем
-        """
+        """Получает данные с Binance API"""
         try:
             url = f"{self.base_url}?symbol={symbol}"
             response = requests.get(url)
             response.raise_for_status()
             return response.json()
-
         except Exception as e:
             print(f"❌ Ошибка Binance API: {e}")
             return None
 
     def analyze_signal(self, crypto):
-        """
-        Анализ монеты по данным Binance
-        """
+        """Анализ монеты по данным Binance"""
         symbol = crypto.upper() + "USDT"
         data = self.get_crypto_data(symbol)
 
@@ -75,9 +65,7 @@ class CryptoTradingAgent:
         return signal
 
     def format_signal_message(self, signal):
-        """
-        Формат сообщения Telegram
-        """
+        """Формирует сообщение Telegram"""
         message = f"""
 🤖 ТОРГОВЫЙ СИГНАЛ (Binance)
 
@@ -94,9 +82,7 @@ class CryptoTradingAgent:
         return message.strip()
 
     def send_telegram_message(self, message):
-        """
-        Отправка сообщения Telegram
-        """
+        """Отправка сообщения в Telegram"""
         try:
             url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
             data = {
@@ -113,7 +99,7 @@ class CryptoTradingAgent:
 
     def run_analysis(self, cryptos):
         """
-        Анализ списка монет
+        Анализ списка монет (BTC, ETH, SOL, ...)
         """
         print("=" * 60)
         print("🚀 ЗАПУСК CRYPTO TRADING AGENT (Binance API)")
@@ -127,7 +113,7 @@ class CryptoTradingAgent:
                 message = self.format_signal_message(signal)
                 print(message)
 
-                # Сохранение сигнала в файл
+                # сохраняем файл с сигналом
                 filename = f"signal_{crypto}_{int(time.time())}.json"
                 with open(filename, "w", encoding="utf-8") as f:
                     json.dump(signal, f, ensure_ascii=False, indent=2)
