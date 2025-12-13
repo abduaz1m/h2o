@@ -1,18 +1,10 @@
-import os
-import time
-import threading
-import schedule
-from crypto_trading_agent import CryptoTradingAgent
-from server import app
-
 def run_trading_bot():
-    print("🚀 Запуск торгового анализа...")
-
     bot_token = os.getenv('BOT_TOKEN')
     chat_id = os.getenv('CHAT_ID')
     cryptos = os.getenv('CRYPTOS', 'bitcoin,ethereum').split(',')
 
-    print("Значения переменных окружения:")
+    # 🔍 ДОБАВЛЕННЫЙ DEBUG-КОД
+    print("🔍 DEBUG:")
     print("BOT_TOKEN:", bot_token)
     print("CHAT_ID:", chat_id)
     print("CRYPTOS:", cryptos)
@@ -28,11 +20,11 @@ def run_trading_bot():
         )
 
         agent.run_analysis(cryptos)
-
-        print("✅ Анализ завершен и сообщения отправлены!")
+        print("✅ Анализ завершён")
 
     except Exception as e:
-        print("❌ Ошибка выполнения бота:", e)
+        print("❌ Ошибка в run_trading_bot:", e)
+
 
 
 def start_scheduler():
