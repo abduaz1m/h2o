@@ -1,134 +1,75 @@
-import time
 import requests
+import time
 from datetime import datetime
 
-
 class CryptoTradingAgent:
-    """
-    Crypto Trading Agent using CoinGecko API
-    """
+    def __init__(self, bot_token: str, chat_id: str):
+        self.bot_token = bot_token
+        self.chat_id = chat_id
+        self.base_url = "https://api.coingecko.com/api/v3"
 
-    def __init__(self, telegram_bot_token, telegram_chat_id):
-        self.telegram_bot_token = telegram_bot_token
-        self.telegram_chat_id = telegram_chat_id
-
-        self.coingecko_url = "https://api.coingecko.com/api/v3/simple/price"
-
-        # соответствие символов CoinGecko
-        self.coin_map = {
-            "BTC": "bitcoin",
-            "ETH": "ethereum",
-            "SOL": "solana",
-            "BNB": "binancecoin",
-            "XRP": "ripple"
-        }
-
-    # --------------------------------------------------
-    # Получение данных CoinGecko
-    # --------------------------------------------------
-    def get_price_data(self, symbol):
-        coin_id = self.coin_map.get(symbol)
-        if not coin_id:
-            print(f"❌ Монета {symbol} не поддерживается")
-            return None
-
+    # ---------- CoinGecko ----------
+    def get_price(self, coin_id: str):
+        url = f"{self.base_url}/simple/price"
         params = {
             "ids": coin_id,
             "vs_currencies": "usd",
-            "include_24hr_change": "true"
+            "include_24hr_change": "true",
+            "include_24hr_vol": "true"
         }
 
-        try:
-            r = requests.get(self.coingecko_url, params=params, timeout=10)
-            r.raise_for_status()
-            data = r.json()
-            return data.get(coin_id)
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
 
-        except Exception as e:
-            print("❌ CoinGecko error:", e)
+        if coin_id not in r.json():
             return None
 
-    # --------------------------------------------------
-    # Анализ сигнала
-    # --------------------------------------------------
-    def analyze_signal(self, symbol):
-        data = self.get_price_data(symbol)
+        data = r.json()[coin_id]
+        return {
+            "price": data["usd"],
+            "change": data.get("usd_24h_change", 0),
+            "volume": data.get("usd_24h_vol", 0)
+        }
+
+    # ---------- Анализ ----------
+    def analyze_coin(self, coin: str):
+        data = self.get_price(coin)
         if not data:
             return None
 
-        price = data["usd"]
-        change_24h = data["usd_24h_change"]
+        change = data["change"]
 
-        signal = {
-            "crypto": symbol,
-            "price": price,
-            "change_24h": change_24h,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-
-        if change_24h > 5:
-            signal["action"] = "🟢 BUY"
-            signal["reason"] = f"Рост +{change_24h:.2f}%"
-        elif change_24h < -5:
-            signal["action"] = "🔴 SELL"
-            signal["reason"] = f"Падение {change_24h:.2f}%"
+        if change > 5:
+            action = "🟢 BUY"
+        elif change < -5:
+            action = "🔴 SELL"
         else:
-            signal["action"] = "⚪ HOLD"
-            signal["reason"] = f"Боковик ({change_24h:+.2f}%)"
+            action = "⚪ HOLD"
 
-        return signal
-
-    # --------------------------------------------------
-    # Формат сообщения
-    # --------------------------------------------------
-    def format_message(self, s):
         return f"""
-📊 <b>CRYPTO SIGNAL</b>
+🤖 Crypto Signal (CoinGecko)
 
-💰 Монета: {s['crypto']}
-💵 Цена: ${s['price']}
-📊 24h: {s['change_24h']:+.2f}%
+💰 Монета: {coin.upper()}
+💵 Цена: ${data['price']:.4f}
+📊 24h: {change:+.2f}%
+📈 Объем: {data['volume']:.0f}
 
-{s['action']}
-📝 {s['reason']}
-
-⏰ {s['timestamp']}
+👉 {action}
+⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """.strip()
 
-    # --------------------------------------------------
-    # Отправка Telegram
-    # --------------------------------------------------
-    def send_telegram(self, text):
-        try:
-            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
-            data = {
-                "chat_id": self.telegram_chat_id,
-                "text": text,
-                "parse_mode": "HTML"
-            }
-            requests.post(url, data=data)
-        except Exception as e:
-            print("❌ Telegram error:", e)
+    # ---------- Telegram ----------
+    def send_message(self, text: str):
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        requests.post(url, data={
+            "chat_id": self.chat_id,
+            "text": text
+        })
 
-    # --------------------------------------------------
-    # Запуск анализа
-    # --------------------------------------------------
-    def run_analysis(self, symbols):
-        print("🚀 CoinGecko analysis started:", symbols)
-
-        for s in symbols:
-            signal = self.analyze_signal(s)
-            if signal:
-                msg = self.format_message(signal)
-                self.send_telegram(msg)
-                time.sleep(1)
-
-    # --------------------------------------------------
-    # Команда /check
-    # --------------------------------------------------
-    def handle_command(self, text, symbols):
-        if text == "/check":
-            self.send_telegram("🔍 Выполняю анализ (CoinGecko)...")
-            self.run_analysis(symbols)
-            return True
-        return False
+    # ---------- Запуск анализа ----------
+    def run_analysis(self, coins: list[str]):
+        for coin in coins:
+            msg = self.analyze_coin(coin)
+            if msg:
+                self.send_message(msg)
+            time.sleep(1)
