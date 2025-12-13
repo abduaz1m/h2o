@@ -4,7 +4,8 @@ import requests
 from datetime import datetime
 import json
 
-class CryptoTradingAgent:run_analysis(self, cryptos):
+
+class CryptoTradingAgent:
     """
     AI агент на Binance API
     """
@@ -15,7 +16,7 @@ class CryptoTradingAgent:run_analysis(self, cryptos):
         self.base_url = "https://api.binance.com/api/v3/ticker/24hr"
 
     def get_crypto_data(self, symbol="BTCUSDT"):
-        """Получает данные с Binance API"""
+        """Получение данных с Binance API"""
         try:
             url = f"{self.base_url}?symbol={symbol}"
             response = requests.get(url)
@@ -26,7 +27,7 @@ class CryptoTradingAgent:run_analysis(self, cryptos):
             return None
 
     def analyze_signal(self, crypto):
-        """Анализ монеты по данным Binance"""
+        """Анализ монеты по Binance API"""
         symbol = crypto.upper() + "USDT"
         data = self.get_crypto_data(symbol)
 
@@ -65,8 +66,8 @@ class CryptoTradingAgent:run_analysis(self, cryptos):
         return signal
 
     def format_signal_message(self, signal):
-        """Формирует сообщение Telegram"""
-        message = f"""
+        """Форматирование сообщения Telegram"""
+        return f"""
 🤖 ТОРГОВЫЙ СИГНАЛ (Binance)
 
 💰 Монета: {signal['crypto']}
@@ -78,38 +79,26 @@ class CryptoTradingAgent:run_analysis(self, cryptos):
 📝 {signal['reason']}
 
 ⏰ Время: {signal['timestamp']}
-"""
-        return message.strip()
+""".strip()
 
-def send_telegram_message(self, message):
-    """
-    Отправка сообщения Telegram с расширенным логом
-    """
-    try:
-        url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
-        data = {
-            'chat_id': self.telegram_chat_id,
-            'text': message,
-            'parse_mode': 'HTML'
-        }
-
-        response = requests.post(url, data=data)
-
-        print("📤 Telegram API status:", response.status_code)
-        print("📤 Telegram API response:", response.text)
-
-        response.raise_for_status()
-        return True
-
-    except Exception as e:
-        print("❌ Ошибка Telegram API:", e)
-        return False
-
+    def send_telegram_message(self, message):
+        """Отправка Telegram"""
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+            data = {
+                'chat_id': self.telegram_chat_id,
+                'text': message,
+                'parse_mode': 'HTML'
+            }
+            response = requests.post(url, data=data)
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            print(f"❌ Ошибка Telegram API: {e}")
+            return False
 
     def run_analysis(self, cryptos):
-        """
-        Анализ списка монет (BTC, ETH, SOL, ...)
-        """
+        """Анализ списка монет"""
         print("=" * 60)
         print("🚀 ЗАПУСК CRYPTO TRADING AGENT (Binance API)")
         print("=" * 60)
@@ -122,12 +111,10 @@ def send_telegram_message(self, message):
                 message = self.format_signal_message(signal)
                 print(message)
 
-                # сохраняем файл с сигналом
                 filename = f"signal_{crypto}_{int(time.time())}.json"
                 with open(filename, "w", encoding="utf-8") as f:
                     json.dump(signal, f, ensure_ascii=False, indent=2)
 
-                # отправляем в Telegram
                 self.send_telegram_message(message)
 
             time.sleep(1)
