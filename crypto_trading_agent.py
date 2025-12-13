@@ -1,75 +1,105 @@
-import requests
 import time
+import requests
 from datetime import datetime
 
 class CryptoTradingAgent:
     def __init__(self, telegram_bot_token, telegram_chat_id):
-        self.telegram_bot_token = telegram_bot_token
-        self.telegram_chat_id = telegram_chat_id
-        self.base_url = "https://api.coingecko.com/api/v3/coins/markets"
+        self.bot_token = telegram_bot_token
+        self.chat_id = telegram_chat_id
 
-    def get_market_data(self, cryptos):
-        ids = ",".join(cryptos)
+        # CoinGecko API
+        self.api_url = "https://api.coingecko.com/api/v3/coins/markets"
+
+        # Жёстко оставляем ТОЛЬКО ETH
+        self.coin_id = "ethereum"
+
+    # ================================
+    # Получение данных (БЕЗ 429)
+    # ================================
+    def get_eth_data(self):
         params = {
             "vs_currency": "usd",
-            "ids": ids,
+            "ids": self.coin_id,
             "order": "market_cap_desc",
-            "per_page": len(cryptos),
+            "per_page": 1,
             "page": 1,
             "sparkline": "false",
             "price_change_percentage": "24h"
         }
 
-        try:
-            r = requests.get(self.base_url, params=params, timeout=10)
-            if r.status_code == 429:
-                print("⏳ CoinGecko rate limit. Sleeping 60s...")
-                time.sleep(60)
-                return self.get_market_data(cryptos)
+        response = requests.get(
+            self.api_url,
+            params=params,
+            timeout=15,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "RenderBot/1.0"
+            }
+        )
 
-            r.raise_for_status()
-            return r.json()
+        response.raise_for_status()
+        data = response.json()
+        return data[0]
 
-        except Exception as e:
-            print("❌ CoinGecko error:", e)
-            return []
+    # ================================
+    # Анализ ETH
+    # ================================
+    def analyze(self):
+        data = self.get_eth_data()
 
-    def send_message(self, text):
-    url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
-    payload = {
-        "chat_id": self.telegram_chat_id,
-        "text": text
-    }
-    requests.post(url, data=payload)
+        price = data["current_price"]
+        change_24h = data["price_change_percentage_24h"]
+        volume = data["total_volume"]
 
-    def analyze(self, coin):
-        change = coin.get("price_change_percentage_24h", 0)
-
-        if change > 5:
+        if change_24h > 2:
             action = "🟢 BUY"
-        elif change < -5:
+        elif change_24h < -2:
             action = "🔴 SELL"
         else:
             action = "⚪ HOLD"
 
-        return f"""
+        message = f"""
 🤖 Crypto Signal (CoinGecko)
 
-💰 Монета: {coin['name'].upper()}
-💵 Цена: ${coin['current_price']}
-📊 24ч: {change:.2f}%
-📈 Объём: {coin['total_volume']}
+💰 Монета: ETHEREUM
+💵 Цена: ${price:,.2f}
+📊 24h: {change_24h:+.2f}%
+📈 Объем: {volume:,}
 
 👉 {action}
 ⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """.strip()
 
-    def run_analysis(self, cryptos):
-        print("🚀 CoinGecko analysis started:", cryptos)
+        return message
 
-        data = self.get_market_data(cryptos)
+    # ================================
+    # Отправка в Telegram
+    # ================================
+    def send_message(self, text):
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        payload = {
+            "chat_id": self.chat_id,
+            "text": text
+        }
+        requests.post(url, data=payload, timeout=10)
 
-        for coin in data:
-            msg = self.analyze(coin)
-            self.send_message(msg)
-            time.sleep(2)  # ⬅️ ОБЯЗАТЕЛЬНО
+    # ================================
+    # Запуск анализа
+    # ================================
+    def run_analysis(self):
+        message = self.analyze()
+        self.send_message(message)
+
+        # 🔥 КРИТИЧНО: защита от 429
+        time.sleep(30)
+
+    # ================================
+    # Команды
+    # ================================
+    def handle_command(self, text):
+        if text == "/check":
+            self.send_message("🔍 Анализ ETH запущен...")
+            self.run_analysis()
+
+        elif text == "/status":
+            self.send_message("✅ Бот активен\n📡 Источник: CoinGecko\n⏱ Интервал: 10 минут\n💰 Монета: ETH")
