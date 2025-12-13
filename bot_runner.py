@@ -3,91 +3,58 @@ import time
 import threading
 import schedule
 import requests
+from flask import Flask, request
 
 from crypto_trading_agent import CryptoTradingAgent
-from server import app
+
+
+app = Flask(__name__)
+
+# Загружаем переменные окружения Render
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+CRYPTOS = os.getenv("CRYPTOS", "BTC,ETH,SOL").split(",")
+
+# Приводим в формат BingX: BTC → BTC-USDT
+SYMBOLS = [c.strip().upper() + "-USDT" for c in CRYPTOS]
+
+
+agent = CryptoTradingAgent(BOT_TOKEN, CHAT_ID)
 
 
 # ----------------------------------------------------------
-#  Обработчик входящих Telegram-команд
+# Обработка Telegram команд (webhook)
 # ----------------------------------------------------------
-def listen_for_commands(agent, cryptos):
-    print("📨 Командный слушатель запущен...")
+@app.route("/", methods=["POST"])
+def telegram_webhook():
+    data = request.json
 
-    url = f"https://api.telegram.org/bot{agent.telegram_bot_token}/getUpdates"
-    last_update_id = None
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        text = data["message"].get("text", "")
 
-    while True:
-        try:
-            params = {"offset": last_update_id, "timeout": 10}
-            response = requests.get(url, params=params).json()
+        if str(chat_id) == CHAT_ID:
+            handled = agent.handle_command(text, SYMBOLS)
+            if handled:
+                return {"ok": True}
 
-            if "result" in response:
-                for update in response["result"]:
-                    last_update_id = update["update_id"] + 1
-
-                    if "message" in update:
-                        text = update["message"].get("text", "")
-                        print(f"📩 Команда получена: {text}")
-
-                        agent.handle_command(text, cryptos)
-
-        except Exception as e:
-            print("❌ Ошибка listen_for_commands:", e)
-
-        time.sleep(2)
+    return {"ok": True}
 
 
 # ----------------------------------------------------------
-# Запуск торгового анализа
+# Периодический анализ
 # ----------------------------------------------------------
-def run_trading_bot():
-    bot_token = os.getenv('BOT_TOKEN')
-    chat_id = os.getenv('CHAT_ID')
-    cryptos = os.getenv('CRYPTOS', 'bitcoin,ethereum').split(',')
-
-    print("🔍 DEBUG ENV:")
-    print("BOT_TOKEN:", bot_token)
-    print("CHAT_ID:", chat_id)
-    print("CRYPTOS:", cryptos)
-
-    if not bot_token or not chat_id:
-        print("❌ Ошибка: переменные окружения не установлены!")
-        return
-
-    try:
-        agent = CryptoTradingAgent(
-            telegram_bot_token=bot_token,
-            telegram_chat_id=chat_id
-        )
-
-        # 🚀 СНАЧАЛА выполняем анализ
-        print("🚀 START ANALYSIS...")
-        agent.run_analysis(cryptos)
-
-        # 🔥 ПОСЛЕ анализа запускаем командный слушатель (один раз)
-        if not hasattr(run_trading_bot, "listener_started"):
-            threading.Thread(
-                target=listen_for_commands,
-                args=(agent, cryptos),
-                daemon=True
-            ).start()
-
-            run_trading_bot.listener_started = True
-
-    except Exception as e:
-        print("❌ Ошибка в run_trading_bot:", e)
+def run_periodic_analysis():
+    print("🕒 Выполняю периодический анализ...")
+    agent.run_analysis(SYMBOLS)
 
 
-# ----------------------------------------------------------
-# Планировщик (каждые 10 минут)
-# ----------------------------------------------------------
 def start_scheduler():
-    print("⏱️ Scheduler started! Every 10 min.")
-    schedule.every(10).minutes.do(run_trading_bot)
+    print("⏱ Scheduler started! Every 10 min.")
+    schedule.every(10).minutes.do(run_periodic_analysis)
 
-    # Первый запуск сразу!
-    run_trading_bot()
+    # Первый запуск сразу
+    threading.Thread(target=run_periodic_analysis, daemon=True).start()
 
     while True:
         schedule.run_pending()
@@ -95,12 +62,14 @@ def start_scheduler():
 
 
 # ----------------------------------------------------------
-# Запуск приложения Render
+# Запуск фонового планировщика + Flask сервера
 # ----------------------------------------------------------
 if __name__ == "__main__":
-    print("🔥 bot_runner.py STARTED (НОВАЯ ФИНАЛЬНАЯ ВЕРСИЯ)")
 
-    threading.Thread(target=start_scheduler, daemon=True).start()
+    print("🔥 bot_runner.py STARTED (НОВАЯ BINGX ВЕРСИЯ)")
 
-    print("🌐 Flask server starting...")
+    scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+    scheduler_thread.start()
+
+    print("🌍 Flask server starting...")
     app.run(host="0.0.0.0", port=10000)
