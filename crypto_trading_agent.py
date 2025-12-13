@@ -3,90 +3,70 @@ import time
 from datetime import datetime
 
 class CryptoTradingAgent:
-    def __init__(self, bot_token: str, chat_id: str):
-        self.bot_token = bot_token
-        self.chat_id = chat_id
-        self.base_url = "https://api.coingecko.com/api/v3"
+    def __init__(self, telegram_bot_token, telegram_chat_id):
+        self.telegram_bot_token = telegram_bot_token
+        self.telegram_chat_id = telegram_chat_id
+        self.base_url = "https://api.coingecko.com/api/v3/coins/markets"
 
-    # --------------------------------------------------
-    # Получение данных из CoinGecko
-    # --------------------------------------------------
-    def get_coin_data(self, coin_id: str):
-        url = f"{self.base_url}/coins/markets"
+    def get_market_data(self, cryptos):
+        ids = ",".join(cryptos)
         params = {
             "vs_currency": "usd",
-            "ids": coin_id,
+            "ids": ids,
             "order": "market_cap_desc",
-            "per_page": 1,
+            "per_page": len(cryptos),
             "page": 1,
             "sparkline": "false",
             "price_change_percentage": "24h"
         }
 
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
+        try:
+            r = requests.get(self.base_url, params=params, timeout=10)
+            if r.status_code == 429:
+                print("⏳ CoinGecko rate limit. Sleeping 60s...")
+                time.sleep(60)
+                return self.get_market_data(cryptos)
 
-        if not data:
-            return None
+            r.raise_for_status()
+            return r.json()
 
-        return data[0]
+        except Exception as e:
+            print("❌ CoinGecko error:", e)
+            return []
 
-    # --------------------------------------------------
-    # Анализ монеты
-    # --------------------------------------------------
-    def analyze_coin(self, coin_id: str):
-        data = self.get_coin_data(coin_id)
-        if not data:
-            return None
+    def send_message(self, text):
+        url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+        data = {"chat_id": self.telegram_chat_id, "text": text}
+        requests.post(url, data=data)
 
-        change = data.get("price_change_percentage_24h", 0)
+    def analyze(self, coin):
+        change = coin.get("price_change_percentage_24h", 0)
 
-        if change > 3:
+        if change > 5:
             action = "🟢 BUY"
-        elif change < -3:
+        elif change < -5:
             action = "🔴 SELL"
         else:
             action = "⚪ HOLD"
 
-        return {
-            "coin": data["name"].upper(),
-            "price": data["current_price"],
-            "change": change,
-            "volume": data["total_volume"],
-            "action": action,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+        return f"""
+🤖 Crypto Signal (CoinGecko)
 
-    # --------------------------------------------------
-    # Отправка сообщения в Telegram
-    # --------------------------------------------------
-    def send_message(self, text: str):
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        payload = {
-            "chat_id": self.chat_id,
-            "text": text
-        }
-        requests.post(url, data=payload, timeout=10)
+💰 Монета: {coin['name'].upper()}
+💵 Цена: ${coin['current_price']}
+📊 24ч: {change:.2f}%
+📈 Объём: {coin['total_volume']}
 
-    # --------------------------------------------------
-    # Запуск анализа
-    # --------------------------------------------------
-    def run_analysis(self, coins: list[str]):
-        for coin in coins:
-            result = self.analyze_coin(coin)
-            if not result:
-                continue
+👉 {action}
+⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+""".strip()
 
-            message = (
-                f"🤖 Crypto Signal (CoinGecko)\n\n"
-                f"💰 Монета: {result['coin']}\n"
-                f"💵 Цена: ${result['price']}\n"
-                f"📊 24h: {result['change']:.2f}%\n"
-                f"📈 Объём: {result['volume']}\n\n"
-                f"👉 {result['action']}\n"
-                f"⏰ {result['time']}"
-            )
+    def run_analysis(self, cryptos):
+        print("🚀 CoinGecko analysis started:", cryptos)
 
-            self.send_message(message)
-            time.sleep(1)
+        data = self.get_market_data(cryptos)
+
+        for coin in data:
+            msg = self.analyze(coin)
+            self.send_message(msg)
+            time.sleep(2)  # ⬅️ ОБЯЗАТЕЛЬНО
