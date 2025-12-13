@@ -35,14 +35,19 @@ def run_trading_bot():
 
 def start_scheduler():
     print("📅 Планировщик запущен. Анализ каждые 10 минут.")
-    schedule.every(10).minutes.do(run_trading_bot)
 
-    # Первый запуск сразу
+    # каждый запуск — в отдельном потоке!
+    schedule.every(10).minutes.do(
+        lambda: threading.Thread(target=run_trading_bot, daemon=True).start()
+    )
+
+    # Первый запуск — тоже в отдельном потоке
     threading.Thread(target=run_trading_bot, daemon=True).start()
 
     while True:
         schedule.run_pending()
         time.sleep(1)
+
 
 
 # Запускаем scheduler перед Flask
