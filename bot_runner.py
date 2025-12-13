@@ -1,5 +1,3 @@
-print("🔥 bot_runner.py STARTED (НОВАЯ ФИНАЛЬНАЯ ВЕРСИЯ)")
-
 import os
 import time
 import threading
@@ -8,58 +6,33 @@ from crypto_trading_agent import CryptoTradingAgent
 from server import app
 
 
-def run_trading_bot():
-    """Запуск анализа криптовалют"""
+def run_bot():
     bot_token = os.getenv("BOT_TOKEN")
     chat_id = os.getenv("CHAT_ID")
     cryptos = os.getenv("CRYPTOS", "bitcoin,ethereum").split(",")
 
-    print("\n🔍 DEBUG:")
-    print("BOT_TOKEN:", bot_token)
-    print("CHAT_ID:", chat_id)
-    print("CRYPTOS:", cryptos)
+    print("🔍 DEBUG:", bot_token, chat_id, cryptos)
 
-    if not bot_token or not chat_id:
-        print("❌ Переменные окружения не установлены!")
-        return
-
-    try:
-        agent = CryptoTradingAgent(
-            telegram_bot_token=bot_token,
-            telegram_chat_id=chat_id
-        )
-        agent.run_analysis(cryptos)
-        print("✅ Анализ завершён")
-
-    except Exception as e:
-        print("❌ Ошибка в run_trading_bot:", e)
+    agent = CryptoTradingAgent(bot_token, chat_id)
+    agent.run_analysis(cryptos)
 
 
-def start_scheduler():
-    """Фоновый планировщик"""
-    print("📅 Планировщик запущен. Анализ каждые 10 минут.")
+def scheduler_loop():
+    print("⏱ Scheduler started! Every 10 min.")
+    schedule.every(10).minutes.do(run_bot)
 
-    # Каждый запуск — в новом потоке
-    schedule.every(10).minutes.do(
-        lambda: threading.Thread(target=run_trading_bot, daemon=True).start()
-    )
+    run_bot()  # первый запуск
 
-    # Первый запуск — сразу и тоже в отдельном потоке
-    threading.Thread(target=run_trading_bot, daemon=True).start()
-
-    # Цикл планировщика
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 
-# Запускаем scheduler в отдельном потоке
-scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
-scheduler_thread.start()
-print("🔥 Scheduler поток запущен!")
+# Запускаем планировщик в отдельном потоке
+threading.Thread(target=scheduler_loop, daemon=True).start()
 
 
-# Запускаем Flask (держит Render живым)
+# Flask сервер
 if __name__ == "__main__":
-    print("🌐 Запускается Flask веб-сервер...")
+    print("🌍 Flask server starting...")
     app.run(host="0.0.0.0", port=10000)
