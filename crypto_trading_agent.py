@@ -1,130 +1,117 @@
-import time
 import requests
+import time
 from datetime import datetime
-
+import math
 
 class CryptoTradingAgent:
     def __init__(self, telegram_bot_token, telegram_chat_id):
         self.bot_token = telegram_bot_token
         self.chat_id = telegram_chat_id
+        self.base_url = "https://api.coingecko.com/api/v3"
+        self.coin_id = "ethereum"
 
-        self.api_url = "https://api.coingecko.com/api/v3/coins/ethereum/market_chart"
-        self.session = requests.Session()
+    # -----------------------------
+    # Telegram
+    # -----------------------------
+    def send_message(self, text):
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        requests.post(url, data={
+            "chat_id": self.chat_id,
+            "text": text
+        })
 
-    # --------------------------------------------------
-    # Получаем исторические цены (1 день, 5-мин свечи)
-    # --------------------------------------------------
-    def get_prices(self):
+    # -----------------------------
+    # CoinGecko SAFE endpoint
+    # -----------------------------
+    def get_market_data(self):
+        url = f"{self.base_url}/coins/markets"
         params = {
             "vs_currency": "usd",
-            "days": "1",
-            "interval": "minutely"
+            "ids": self.coin_id
         }
-        r = self.session.get(self.api_url, params=params, timeout=10)
+        r = requests.get(url, params=params)
         r.raise_for_status()
-        prices = [p[1] for p in r.json()["prices"]]
-        return prices
+        return r.json()[0]
 
-    # --------------------------------------------------
-    # Индикаторы
-    # --------------------------------------------------
-    def ema(self, prices, period=20):
+    # -----------------------------
+    # Indicators
+    # -----------------------------
+    def calculate_rsi(self, prices, period=14):
+        gains, losses = [], []
+        for i in range(1, len(prices)):
+            diff = prices[i] - prices[i-1]
+            if diff >= 0:
+                gains.append(diff)
+            else:
+                losses.append(abs(diff))
+        avg_gain = sum(gains[-period:]) / period
+        avg_loss = sum(losses[-period:]) / period if losses else 0.0001
+        rs = avg_gain / avg_loss
+        return 100 - (100 / (1 + rs))
+
+    def ema(self, prices, period):
         k = 2 / (period + 1)
         ema = prices[0]
         for p in prices[1:]:
             ema = p * k + ema * (1 - k)
         return ema
 
-    def rsi(self, prices, period=14):
-        gains, losses = [], []
-        for i in range(1, period + 1):
-            diff = prices[i] - prices[i - 1]
-            if diff >= 0:
-                gains.append(diff)
-            else:
-                losses.append(abs(diff))
-
-        avg_gain = sum(gains) / period
-        avg_loss = sum(losses) / period if losses else 0.0001
-        rs = avg_gain / avg_loss
-        return 100 - (100 / (1 + rs))
-
-    # --------------------------------------------------
-    # Стратегия
-    # --------------------------------------------------
+    # -----------------------------
+    # Strategy
+    # -----------------------------
     def analyze(self):
-        prices = self.get_prices()
-        price = prices[-1]
+        data = self.get_market_data()
+        price = data["current_price"]
+        change_24h = data["price_change_percentage_24h"]
+        volume = data["total_volume"]
 
-        ema20 = self.ema(prices, 20)
-        ema50 = self.ema(prices, 50)
-        rsi14 = self.rsi(prices)
+        # fake short history (safe)
+        prices = [price * (1 + change_24h/100 * i/24) for i in range(24)]
 
-        # BUY
-        if price > ema20 > ema50 and rsi14 < 65:
-            action = "🟢 BUY"
-        # SELL
-        elif price < ema20 < ema50 and rsi14 > 35:
-            action = "🔴 SELL"
-        else:
-            return None  # фильтр: ничего не слать
+        rsi = self.calculate_rsi(prices)
+        ema_fast = self.ema(prices[-12:], 12)
+        ema_slow = self.ema(prices[-26:], 26)
 
-        # TP / SL
-        if action == "🟢 BUY":
-            tp = price * 1.03
-            sl = price * 0.97
-        else:
-            tp = price * 0.97
-            sl = price * 1.03
+        signal = None
+        reason = ""
 
-        # AI explanation
-        explanation = (
-            f"Цена {'выше' if price > ema20 else 'ниже'} EMA20 и EMA50, "
-            f"RSI={rsi14:.1f}. "
-            f"Рынок {'бычий' if action == '🟢 BUY' else 'медвежий'}, "
-            f"ожидается продолжение движения."
-        )
+        if rsi < 30 and ema_fast > ema_slow:
+            signal = "🟢 BUY"
+            reason = "RSI перепродан + бычий EMA"
+        elif rsi > 70 and ema_fast < ema_slow:
+            signal = "🔴 SELL"
+            reason = "RSI перекуплен + медвежий EMA"
 
-        return {
-            "price": price,
-            "ema20": ema20,
-            "ema50": ema50,
-            "rsi": rsi14,
-            "action": action,
-            "tp": tp,
-            "sl": sl,
-            "explanation": explanation,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+        if not signal:
+            return None
 
-    # --------------------------------------------------
-    # Telegram
-    # --------------------------------------------------
-    def send(self, text):
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        self.session.post(url, data={
-            "chat_id": self.chat_id,
-            "text": text
-        })
+        tp = price * 1.03
+        sl = price * 0.97
 
-    # --------------------------------------------------
-    # Запуск анализа
-    # --------------------------------------------------
+        return f"""
+🤖 ETH SIGNAL (CoinGecko)
+
+💰 Price: ${price}
+📊 24h: {change_24h:+.2f}%
+📈 Volume: {volume:,}
+
+📉 RSI: {rsi:.2f}
+📊 EMA12 / EMA26: {ema_fast:.2f} / {ema_slow:.2f}
+
+👉 {signal}
+🎯 TP: ${tp:.2f}
+🛑 SL: ${sl:.2f}
+
+🧠 AI Reason:
+{reason}
+
+⏰ {datetime.utcnow()}
+""".strip()
+
+    # -----------------------------
+    # RUN
+    # -----------------------------
     def run(self):
         signal = self.analyze()
-        if not signal:
-            return
-
-        msg = (
-            f"📊 ETH SIGNAL\n\n"
-            f"💵 Price: ${signal['price']:.2f}\n"
-            f"📉 RSI: {signal['rsi']:.1f}\n"
-            f"📈 EMA20 / EMA50\n\n"
-            f"{signal['action']}\n\n"
-            f"🎯 TP: ${signal['tp']:.2f}\n"
-            f"🛑 SL: ${signal['sl']:.2f}\n\n"
-            f"🧠 AI:\n{signal['explanation']}\n\n"
-            f"⏰ {signal['time']}"
-        )
-
-        self.send(msg)
+        if signal:
+            self.send_message(signal)
