@@ -10,21 +10,33 @@ class CryptoTradingAgent:
     """
 
     def __init__(self, telegram_bot_token=None, telegram_chat_id=None):
+        # Теперь бот использует переменные окружения,
+        # которые ты указываешь в Render.
         self.telegram_bot_token = telegram_bot_token
         self.telegram_chat_id = telegram_chat_id
         self.base_url = "https://api.binance.com/api/v3/ticker/24hr"
 
     def get_crypto_data(self, symbol="BTCUSDT"):
+        """
+        Получает данные с Binance:
+        - цена
+        - изменение за 24 часа
+        - объем
+        """
         try:
             url = f"{self.base_url}?symbol={symbol}"
             response = requests.get(url)
             response.raise_for_status()
             return response.json()
+
         except Exception as e:
             print(f"❌ Ошибка Binance API: {e}")
             return None
 
     def analyze_signal(self, crypto):
+        """
+        Анализ монеты по данным Binance
+        """
         symbol = crypto.upper() + "USDT"
         data = self.get_crypto_data(symbol)
 
@@ -63,6 +75,9 @@ class CryptoTradingAgent:
         return signal
 
     def format_signal_message(self, signal):
+        """
+        Формат сообщения Telegram
+        """
         message = f"""
 🤖 ТОРГОВЫЙ СИГНАЛ (Binance)
 
@@ -79,14 +94,27 @@ class CryptoTradingAgent:
         return message.strip()
 
     def send_telegram_message(self, message):
+        """
+        Отправка сообщения Telegram
+        """
         try:
             url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
-            data = {'chat_id': self.telegram_chat_id, 'text': message}
-            requests.post(url, data=data)
+            data = {
+                'chat_id': self.telegram_chat_id,
+                'text': message,
+                'parse_mode': 'HTML'
+            }
+            response = requests.post(url, data=data)
+            response.raise_for_status()
+            return True
         except Exception as e:
             print(f"❌ Ошибка Telegram API: {e}")
+            return False
 
     def run_analysis(self, cryptos):
+        """
+        Анализ списка монет
+        """
         print("=" * 60)
         print("🚀 ЗАПУСК CRYPTO TRADING AGENT (Binance API)")
         print("=" * 60)
@@ -99,9 +127,12 @@ class CryptoTradingAgent:
                 message = self.format_signal_message(signal)
                 print(message)
 
-                with open(f"signal_{crypto}_{int(time.time())}.json", "w", encoding="utf-8") as f:
+                # Сохранение сигнала в файл
+                filename = f"signal_{crypto}_{int(time.time())}.json"
+                with open(filename, "w", encoding="utf-8") as f:
                     json.dump(signal, f, ensure_ascii=False, indent=2)
 
+                # отправляем в Telegram
                 self.send_telegram_message(message)
 
             time.sleep(1)
