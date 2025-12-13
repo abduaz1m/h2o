@@ -1,3 +1,4 @@
+print("🔥 bot_runner.py STARTED (ЭТО НОВАЯ ВЕРСИЯ)")
 import os
 import time
 import threading
