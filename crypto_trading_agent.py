@@ -1,8 +1,7 @@
-import os
 import time
 import requests
 from datetime import datetime
-import json
+
 
 class CryptoTradingAgent:
     """
@@ -20,14 +19,16 @@ class CryptoTradingAgent:
     def get_crypto_data(self, symbol="BTC-USDT"):
         try:
             url = f"{self.base_url}?symbol={symbol}"
-            print(f"🌐 Запрос к BingX: {url}")
-            r = requests.get(url, timeout=5)
-
-            print(f"📥 Статус ответа BingX: {r.status_code}")
-            print(f"📄 Ответ: {r.text[:200]}")
-
+            print(f"📡 Запрос к BingX: {url}")
+            r = requests.get(url)
             r.raise_for_status()
-            return r.json().get("data")
+
+            data = r.json()
+            if "data" not in data or data["data"] is None:
+                print("⚠ Нет данных от BingX!")
+                return None
+
+            return data["data"]
 
         except Exception as e:
             print(f"❌ BingX API Error: {e}")
@@ -36,8 +37,7 @@ class CryptoTradingAgent:
     # ----------------------------------------------------------
     # Анализ монеты
     # ----------------------------------------------------------
-    def analyze_signal(self, crypto):
-        symbol = crypto.upper() + "-USDT"
+    def analyze_signal(self, symbol):
         data = self.get_crypto_data(symbol)
 
         if not data:
@@ -48,7 +48,7 @@ class CryptoTradingAgent:
         volume_24h = float(data["volume"])
 
         signal = {
-            "crypto": crypto.upper(),
+            "crypto": symbol.replace("-USDT", ""),
             "price": price,
             "change_24h": change_24h,
             "volume_24h": volume_24h,
@@ -70,16 +70,16 @@ class CryptoTradingAgent:
             signal['reason'] = f'Умеренное падение {change_24h:.2f}%'
         else:
             signal['action'] = '⚪ HOLD'
-            signal['reason'] = f'Стабильная цена ({change_24h:+.2f}%)'
+            signal['reason'] = f'Стабильная зона ({change_24h:+.2f}%)'
 
         return signal
 
     # ----------------------------------------------------------
-    # Форматирование сообщения Telegram
+    # Форматирование Telegram сообщения
     # ----------------------------------------------------------
     def format_signal_message(self, signal):
         return f"""
-🤖 ТОРГОВЫЙ СИГНАЛ (BingX)
+🤖 СИГНАЛ (BingX)
 
 💰 Монета: {signal['crypto']}
 💵 Цена: ${signal['price']:,.4f}
@@ -93,44 +93,38 @@ class CryptoTradingAgent:
 """.strip()
 
     # ----------------------------------------------------------
-    # Отправка сообщения Telegram
+    # Отправка в Telegram
     # ----------------------------------------------------------
     def send_telegram_message(self, message):
         try:
             url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
             data = {
-                'chat_id': self.telegram_chat_id,
-                'text': message,
-                'parse_mode': 'HTML'
+                "chat_id": self.telegram_chat_id,
+                "text": message,
+                "parse_mode": "HTML"
             }
             requests.post(url, data=data)
         except Exception as e:
-            print(f"❌ Telegram API Error: {e}")
+            print(f"❌ Telegram Error: {e}")
 
     # ----------------------------------------------------------
-    # Запуск анализа нескольких монет
+    # Анализ сразу нескольких монет
     # ----------------------------------------------------------
-    def run_analysis(self, cryptos):
-        print("🚀 Запуск анализа монет (BingX)...")
-        print("Список:", cryptos)
-
-        for crypto in cryptos:
-            print(f"➡ Анализ {crypto}...")
-            signal = self.analyze_signal(crypto)
-
+    def run_analysis(self, symbols):
+        print("🚀 Запуск анализа монет BingX...")
+        for sym in symbols:
+            signal = self.analyze_signal(sym)
             if signal:
                 msg = self.format_signal_message(signal)
                 self.send_telegram_message(msg)
                 time.sleep(1)
-            else:
-                print(f"⚠ Нет данных для {crypto}")
 
     # ----------------------------------------------------------
     # Обработка команды /check
     # ----------------------------------------------------------
-    def handle_command(self, text, cryptos):
+    def handle_command(self, text, symbols):
         if text == "/check":
             self.send_telegram_message("🔍 Выполняю быстрый анализ (BingX)...")
-            self.run_analysis(cryptos)
+            self.run_analysis(symbols)
             return True
         return False
