@@ -4,7 +4,7 @@ import requests
 from datetime import datetime
 import json
 
-class CryptoTradingAgent:
+class CryptoTradingAgent:run_analysis(self, cryptos):
     """
     AI агент на Binance API
     """
