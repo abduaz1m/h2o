@@ -1,10 +1,12 @@
 print("🔥 bot_runner.py STARTED (ЭТО НОВАЯ ВЕРСИЯ)")
+
 import os
 import time
 import threading
 import schedule
 from crypto_trading_agent import CryptoTradingAgent
 from server import app
+
 
 def run_trading_bot():
     bot_token = os.getenv('BOT_TOKEN')
@@ -33,10 +35,11 @@ def run_trading_bot():
         print("❌ Ошибка в run_trading_bot:", e)
 
 
+
 def start_scheduler():
     print("📅 Планировщик запущен. Анализ каждые 10 минут.")
 
-    # каждый запуск — в отдельном потоке!
+    # Каждый запуск анализа — в отдельном потоке
     schedule.every(10).minutes.do(
         lambda: threading.Thread(target=run_trading_bot, daemon=True).start()
     )
@@ -50,13 +53,15 @@ def start_scheduler():
 
 
 
-# Запускаем scheduler перед Flask
+# --- Запуск scheduler в отдельном потоке ---
 scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
 scheduler_thread.start()
 
 print("🔥 Scheduler поток запущен!")
 
-# Запускаем Flask-сервер
+
+
+# --- Запускаем Flask веб-сервер ---
 if __name__ == "__main__":
     print("🌐 Запускается Flask веб-сервер...")
     app.run(host="0.0.0.0", port=10000)
