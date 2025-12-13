@@ -1,78 +1,101 @@
 import os
 import time
-import schedule
 import requests
 from crypto_trading_agent import CryptoTradingAgent
-
-print("🔥 BOT STARTED (Background Worker)")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 CRYPTOS = os.getenv("CRYPTOS", "bitcoin,ethereum,solana").split(",")
 
-if not BOT_TOKEN or not CHAT_ID:
-    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы")
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-print("✅ ENV OK")
-print("🪙 Монеты:", CRYPTOS)
+print("🤖 BOT STARTED (Background Worker)")
+print("CRYPTOS:", CRYPTOS)
 
-agent = CryptoTradingAgent(BOT_TOKEN, CHAT_ID)
+agent = CryptoTradingAgent(
+    telegram_bot_token=BOT_TOKEN,
+    telegram_chat_id=CHAT_ID
+)
 
-# ---------- Telegram polling ----------
-LAST_UPDATE_ID = 0
+last_update_id = None
 
-def check_commands():
-    global LAST_UPDATE_ID
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-    params = {
-        "timeout": 10,
-        "offset": LAST_UPDATE_ID + 1
-    }
+# -------------------------------
+# Получение сообщений Telegram
+# -------------------------------
+def get_updates():
+    global last_update_id
+    params = {"timeout": 30}
+    if last_update_id:
+        params["offset"] = last_update_id + 1
 
-    r = requests.get(url, params=params, timeout=15)
+    r = requests.get(f"{TELEGRAM_API}/getUpdates", params=params)
     data = r.json()
 
-    for upd in data.get("result", []):
-        LAST_UPDATE_ID = upd["update_id"]
+    if not data.get("ok"):
+        return []
 
-        message = upd.get("message", {})
-        text = message.get("text", "")
-        chat_id = str(message.get("chat", {}).get("id"))
+    return data["result"]
 
-        # ❗️игнорируем чужие чаты
-        if chat_id != CHAT_ID:
-            continue
 
-        print(f"📩 COMMAND RECEIVED: {text}")
+# -------------------------------
+# Обработка команд
+# -------------------------------
+def handle_message(text):
+    if text == "/check":
+        agent.send_telegram_message("🔍 Запускаю быстрый анализ (CoinGecko)...")
+        agent.run_analysis(CRYPTOS)
 
-        if text == "/check":
-            agent.send_message("🔍 Выполняю быстрый анализ (CoinGecko)...")
-            agent.run_analysis(CRYPTOS)
+    elif text == "/status":
+        agent.send_telegram_message(
+            "✅ Бот работает\n"
+            f"📊 Монеты: {', '.join(CRYPTOS)}\n"
+            "⏱ Автоанализ каждые 10 минут"
+        )
 
-        elif text == "/status":
-            agent.send_message(
-                "✅ Бот работает\n"
-                "⏱ Авто-анализ каждые 10 минут\n"
-                f"🪙 Монеты: {', '.join(CRYPTOS)}"
-            )
 
-# ---------- Планировщик ----------
+# -------------------------------
+# Основной цикл
+# -------------------------------
+def main_loop():
+    global last_update_id
+
+    while True:
+        updates = get_updates()
+
+        for update in updates:
+            last_update_id = update["update_id"]
+
+            message = update.get("message")
+            if not message:
+                continue
+
+            text = message.get("text", "")
+            chat_id = str(message["chat"]["id"])
+
+            if chat_id != CHAT_ID:
+                continue
+
+            print("📩 COMMAND:", text)
+            handle_message(text)
+
+        time.sleep(1)
+
+
+# -------------------------------
+# Плановый анализ каждые 10 минут
+# -------------------------------
 def scheduled_analysis():
-    print("⏰ Плановый анализ")
-    agent.run_analysis(CRYPTOS)
+    while True:
+        print("⏱ Auto analysis started")
+        agent.run_analysis(CRYPTOS)
+        time.sleep(600)
 
-schedule.every(10).minutes.do(scheduled_analysis)
 
-# Первый запуск
-scheduled_analysis()
+# -------------------------------
+# Запуск
+# -------------------------------
+import threading
 
-# ---------- MAIN LOOP ----------
-while True:
-    try:
-        check_commands()
-        schedule.run_pending()
-        time.sleep(3)
-    except Exception as e:
-        print("❌ ERROR:", e)
-        time.sleep(5)
+threading.Thread(target=scheduled_analysis, daemon=True).start()
+main_loop()
