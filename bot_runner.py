@@ -1,3 +1,10 @@
+import os
+import time
+import threading
+import schedule
+from crypto_trading_agent import CryptoTradingAgent
+from server import app
+
 def run_trading_bot():
     bot_token = os.getenv('BOT_TOKEN')
     chat_id = os.getenv('CHAT_ID')
