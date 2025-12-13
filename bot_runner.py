@@ -1,4 +1,4 @@
-print("🔥 bot_runner.py STARTED (ЭТО НОВАЯ ВЕРСИЯ)")
+print("🔥 bot_runner.py STARTED (НОВАЯ ФИНАЛЬНАЯ ВЕРСИЯ)")
 
 import os
 import time
@@ -8,6 +8,9 @@ from crypto_trading_agent import CryptoTradingAgent
 from server import app
 
 
+# ==========================================================
+#   ФУНКЦИЯ АНАЛИЗА
+# ==========================================================
 def run_trading_bot():
     bot_token = os.getenv('BOT_TOKEN')
     chat_id = os.getenv('CHAT_ID')
@@ -28,7 +31,7 @@ def run_trading_bot():
             telegram_chat_id=chat_id
         )
 
-        agent.run_analysis(cryptos)
+        agent.run_analysis([c.strip() for c in cryptos])
         print("✅ Анализ завершён")
 
     except Exception as e:
@@ -36,15 +39,18 @@ def run_trading_bot():
 
 
 
+# ==========================================================
+#   ПЛАНИРОВЩИК
+# ==========================================================
 def start_scheduler():
     print("📅 Планировщик запущен. Анализ каждые 10 минут.")
 
-    # Каждый запуск анализа — в отдельном потоке
+    # каждый запуск — в отдельном потоке
     schedule.every(10).minutes.do(
         lambda: threading.Thread(target=run_trading_bot, daemon=True).start()
     )
 
-    # Первый запуск — тоже в отдельном потоке
+    # первый запуск сразу
     threading.Thread(target=run_trading_bot, daemon=True).start()
 
     while True:
@@ -53,15 +59,17 @@ def start_scheduler():
 
 
 
-# --- Запуск scheduler в отдельном потоке ---
+# ==========================================================
+#   ЗАПУСК SCHEDULER
+# ==========================================================
 scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
 scheduler_thread.start()
-
 print("🔥 Scheduler поток запущен!")
 
 
-
-# --- Запускаем Flask веб-сервер ---
+# ==========================================================
+#   ЗАПУСК FLASK
+# ==========================================================
 if __name__ == "__main__":
     print("🌐 Запускается Flask веб-сервер...")
     app.run(host="0.0.0.0", port=10000)
