@@ -35,9 +35,12 @@ class CryptoTradingAgent:
             return []
 
     def send_message(self, text):
-        url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
-        data = {"chat_id": self.telegram_chat_id, "text": text}
-        requests.post(url, data=data)
+    url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+    payload = {
+        "chat_id": self.telegram_chat_id,
+        "text": text
+    }
+    requests.post(url, data=payload)
 
     def analyze(self, coin):
         change = coin.get("price_change_percentage_24h", 0)
