@@ -38,7 +38,7 @@ def start_scheduler():
     schedule.every(10).minutes.do(run_trading_bot)
 
     # Первый запуск сразу
-    run_trading_bot()
+    threading.Thread(target=run_trading_bot, daemon=True).start()
 
     while True:
         schedule.run_pending()
