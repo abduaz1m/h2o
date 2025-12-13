@@ -1,101 +1,67 @@
 import os
 import time
+import schedule
 import requests
 from crypto_trading_agent import CryptoTradingAgent
 
+print("🤖 BOT STARTED (Background Worker)")
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-CRYPTOS = os.getenv("CRYPTOS", "bitcoin,ethereum,solana").split(",")
-
-TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-print("🤖 BOT STARTED (Background Worker)")
-print("CRYPTOS:", CRYPTOS)
 
 agent = CryptoTradingAgent(
     telegram_bot_token=BOT_TOKEN,
     telegram_chat_id=CHAT_ID
 )
 
-last_update_id = None
+# ================================
+# Анализ каждые 10 минут
+# ================================
+def scheduled_analysis():
+    try:
+        agent.run_analysis()
+    except Exception as e:
+        print("❌ Analysis error:", e)
 
+schedule.every(10).minutes.do(scheduled_analysis)
 
-# -------------------------------
-# Получение сообщений Telegram
-# -------------------------------
-def get_updates():
-    global last_update_id
-    params = {"timeout": 30}
-    if last_update_id:
-        params["offset"] = last_update_id + 1
-
-    r = requests.get(f"{TELEGRAM_API}/getUpdates", params=params)
-    data = r.json()
-
-    if not data.get("ok"):
-        return []
-
-    return data["result"]
-
-
-# -------------------------------
-# Обработка команд
-# -------------------------------
-def handle_message(text):
-    if text == "/check":
-        agent.send_telegram_message("🔍 Запускаю быстрый анализ (CoinGecko)...")
-        agent.run_analysis(CRYPTOS)
-
-    elif text == "/status":
-        agent.send_telegram_message(
-            "✅ Бот работает\n"
-            f"📊 Монеты: {', '.join(CRYPTOS)}\n"
-            "⏱ Автоанализ каждые 10 минут"
-        )
-
-
-# -------------------------------
-# Основной цикл
-# -------------------------------
-def main_loop():
-    global last_update_id
+# ================================
+# Telegram long-polling
+# ================================
+def listen_commands():
+    offset = None
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
 
     while True:
-        updates = get_updates()
+        params = {"timeout": 100}
+        if offset:
+            params["offset"] = offset
 
-        for update in updates:
-            last_update_id = update["update_id"]
+        response = requests.get(url, params=params, timeout=120)
+        data = response.json()
+
+        for update in data.get("result", []):
+            offset = update["update_id"] + 1
 
             message = update.get("message")
             if not message:
                 continue
 
             text = message.get("text", "")
-            chat_id = str(message["chat"]["id"])
+            agent.handle_command(text)
 
-            if chat_id != CHAT_ID:
-                continue
+        time.sleep(2)
 
-            print("📩 COMMAND:", text)
-            handle_message(text)
+# ================================
+# Старт
+# ================================
+if __name__ == "__main__":
+    # первый запуск
+    scheduled_analysis()
 
-        time.sleep(1)
+    import threading
+    threading.Thread(target=listen_commands, daemon=True).start()
 
-
-# -------------------------------
-# Плановый анализ каждые 10 минут
-# -------------------------------
-def scheduled_analysis():
     while True:
-        print("⏱ Auto analysis started")
-        agent.run_analysis(CRYPTOS)
-        time.sleep(600)
-
-
-# -------------------------------
-# Запуск
-# -------------------------------
-import threading
-
-threading.Thread(target=scheduled_analysis, daemon=True).start()
-main_loop()
+        schedule.run_pending()
+        time.sleep(1)
