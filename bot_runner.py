@@ -83,7 +83,7 @@ def run_trading_bot():
 # Планировщик (каждые 10 минут)
 # ----------------------------------------------------------
 def start_scheduler():
-    print("⏱️ Scheduler started! Every 1 min.")
+    print("⏱️ Scheduler started! Every 10 min.")
     schedule.every(10).minutes.do(run_trading_bot)
 
     # Первый запуск сразу!
