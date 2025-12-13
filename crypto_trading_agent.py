@@ -81,21 +81,30 @@ class CryptoTradingAgent:
 """
         return message.strip()
 
-    def send_telegram_message(self, message):
-        """Отправка сообщения в Telegram"""
-        try:
-            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
-            data = {
-                'chat_id': self.telegram_chat_id,
-                'text': message,
-                'parse_mode': 'HTML'
-            }
-            response = requests.post(url, data=data)
-            response.raise_for_status()
-            return True
-        except Exception as e:
-            print(f"❌ Ошибка Telegram API: {e}")
-            return False
+def send_telegram_message(self, message):
+    """
+    Отправка сообщения Telegram с расширенным логом
+    """
+    try:
+        url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+        data = {
+            'chat_id': self.telegram_chat_id,
+            'text': message,
+            'parse_mode': 'HTML'
+        }
+
+        response = requests.post(url, data=data)
+
+        print("📤 Telegram API status:", response.status_code)
+        print("📤 Telegram API response:", response.text)
+
+        response.raise_for_status()
+        return True
+
+    except Exception as e:
+        print("❌ Ошибка Telegram API:", e)
+        return False
+
 
     def run_analysis(self, cryptos):
         """
