@@ -10,7 +10,6 @@ def run_trading_bot():
     chat_id = os.getenv('CHAT_ID')
     cryptos = os.getenv('CRYPTOS', 'bitcoin,ethereum').split(',')
 
-    # 🔍 ДОБАВЛЕННЫЙ DEBUG-КОД
     print("🔍 DEBUG:")
     print("BOT_TOKEN:", bot_token)
     print("CHAT_ID:", chat_id)
@@ -31,7 +30,6 @@ def run_trading_bot():
 
     except Exception as e:
         print("❌ Ошибка в run_trading_bot:", e)
-
 
 
 def start_scheduler():
