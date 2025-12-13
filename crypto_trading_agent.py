@@ -3,9 +3,9 @@ import time
 from datetime import datetime
 
 class CryptoTradingAgent:
-    def __init__(self, bot_token: str, chat_id: str):
-        self.bot_token = bot_token
-        self.chat_id = chat_id
+    def __init__(self, telegram_bot_token, telegram_chat_id):
+        self.telegram_bot_token = telegram_bot_token
+        self.telegram_chat_id = telegram_chat_id
         self.base_url = "https://api.coingecko.com/api/v3"
 
     # ---------- CoinGecko ----------
