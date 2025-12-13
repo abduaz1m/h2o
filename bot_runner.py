@@ -13,8 +13,8 @@ print("🤖 BOT STARTED (Background Worker)")
 print("CRYPTOS:", CRYPTOS)
 
 agent = CryptoTradingAgent(
-    telegram_bot_token=BOT_TOKEN,
-    telegram_chat_id=CHAT_ID
+    bot_token=BOT_TOKEN,
+    chat_id=CHAT_ID
 )
 
 last_update_id = None
