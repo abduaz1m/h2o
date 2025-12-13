@@ -1,75 +1,68 @@
 import os
 import time
-import threading
 import schedule
 import requests
-
 from crypto_trading_agent import CryptoTradingAgent
 
+print("🔥 BOT STARTED (Background Worker)")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+CRYPTOS = os.getenv("CRYPTOS", "bitcoin,ethereum,solana").split(",")
 
-# Монеты в формате: BTC,ETH,SOL
-SYMBOLS = os.getenv("CRYPTOS", "BTC,ETH,SOL").split(",")
+if not BOT_TOKEN or not CHAT_ID:
+    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы")
+
+print("✅ ENV OK")
+print("🪙 Монеты:", CRYPTOS)
 
 agent = CryptoTradingAgent(BOT_TOKEN, CHAT_ID)
 
+# ---------- Telegram polling ----------
+LAST_UPDATE_ID = 0
 
-# --------------------------------------------------
-# Проверка команд (/check) через getUpdates
-# --------------------------------------------------
-def listen_commands():
-    print("👂 Listening Telegram commands...")
-    last_update_id = None
+def check_commands():
+    global LAST_UPDATE_ID
 
-    while True:
-        try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-            params = {"offset": last_update_id, "timeout": 10}
-            r = requests.get(url, params=params).json()
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    r = requests.get(url, timeout=10).json()
 
-            for update in r.get("result", []):
-                last_update_id = update["update_id"] + 1
-                msg = update.get("message", {})
-                text = msg.get("text", "")
-                chat_id = str(msg.get("chat", {}).get("id"))
+    for upd in r.get("result", []):
+        update_id = upd["update_id"]
+        if update_id <= LAST_UPDATE_ID:
+            continue
 
-                if chat_id == CHAT_ID:
-                    agent.handle_command(text, SYMBOLS)
+        LAST_UPDATE_ID = update_id
 
-        except Exception as e:
-            print("❌ Telegram polling error:", e)
+        text = upd.get("message", {}).get("text", "")
+        chat_id = str(upd.get("message", {}).get("chat", {}).get("id"))
 
-        time.sleep(2)
+        if chat_id != CHAT_ID:
+            continue
 
+        if text == "/check":
+            agent.send_message("🔍 Запускаю быстрый анализ...")
+            agent.run_analysis(CRYPTOS)
 
-# --------------------------------------------------
-# Планировщик
-# --------------------------------------------------
+        elif text == "/status":
+            agent.send_message("✅ Бот работает. Анализ каждые 10 минут.")
+
+# ---------- Планировщик ----------
 def scheduled_analysis():
-    print("⏱ Scheduled analysis")
-    agent.run_analysis(SYMBOLS)
+    print("⏰ Плановый анализ")
+    agent.run_analysis(CRYPTOS)
 
+schedule.every(10).minutes.do(scheduled_analysis)
 
-def scheduler_loop():
-    schedule.every(10).minutes.do(scheduled_analysis)
-    scheduled_analysis()
+# Первый запуск
+scheduled_analysis()
 
-    while True:
+# ---------- MAIN LOOP ----------
+while True:
+    try:
+        check_commands()
         schedule.run_pending()
-        time.sleep(1)
-
-
-# --------------------------------------------------
-# START
-# --------------------------------------------------
-if __name__ == "__main__":
-    print("🔥 Bot started (CoinGecko version)")
-    print("SYMBOLS:", SYMBOLS)
-
-    threading.Thread(target=listen_commands, daemon=True).start()
-    threading.Thread(target=scheduler_loop, daemon=True).start()
-
-    while True:
-        time.sleep(60)
+        time.sleep(3)
+    except Exception as e:
+        print("❌ ERROR:", e)
+        time.sleep(5)
