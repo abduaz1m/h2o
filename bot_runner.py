@@ -1,120 +1,75 @@
 import os
 import time
-import json
-import schedule
 import threading
+import schedule
 import requests
-from flask import Flask, request
 
 from crypto_trading_agent import CryptoTradingAgent
 
 
-# ============================================================
-# Flask (для Render, чтобы сервис не падал)
-# ============================================================
-app = Flask(__name__)
-
-
-@app.route("/")
-def home():
-    return "👍 Crypto Bot is running!"
-
-
-# ============================================================
-# TELEGRAM ОБРАБОТЧИК ВЕБХУКА
-# ============================================================
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.json
-
-    if "message" not in data:
-        return "ok"
-
-    message = data["message"]
-    chat_id = str(message["chat"]["id"])
-    text = message.get("text", "")
-
-    # Если команда — запускаем анализ
-    if text == "/check":
-        print("📩 Получена команда /check от пользователя")
-
-        bot = CryptoTradingAgent(
-            telegram_bot_token=os.getenv("BOT_TOKEN"),
-            telegram_chat_id=chat_id
-        )
-
-        bot.send_telegram_message("🔍 Выполняю быстрый анализ (BingX)...")
-        bot.run_analysis(CRYPTOS)
-
-    return "ok"
-
-
-# ============================================================
-# Основной функционал бота
-# ============================================================
-
-# Загружаем переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-CRYPTOS = os.getenv("CRYPTOS", "bitcoin,ethereum,solana").split(",")
+
+# Монеты в формате: BTC,ETH,SOL
+SYMBOLS = os.getenv("CRYPTOS", "BTC,ETH,SOL").split(",")
+
+agent = CryptoTradingAgent(BOT_TOKEN, CHAT_ID)
 
 
-def run_trading_bot():
-    """Запуск регулярного анализа"""
-    print("\n🚀 START ANALYSIS...")
-    print(f"Список монет: {CRYPTOS}")
+# --------------------------------------------------
+# Проверка команд (/check) через getUpdates
+# --------------------------------------------------
+def listen_commands():
+    print("👂 Listening Telegram commands...")
+    last_update_id = None
 
-    try:
-        agent = CryptoTradingAgent(
-            telegram_bot_token=BOT_TOKEN,
-            telegram_chat_id=CHAT_ID
-        )
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+            params = {"offset": last_update_id, "timeout": 10}
+            r = requests.get(url, params=params).json()
 
-        agent.run_analysis(CRYPTOS)
-        print("✅ Анализ завершён!")
+            for update in r.get("result", []):
+                last_update_id = update["update_id"] + 1
+                msg = update.get("message", {})
+                text = msg.get("text", "")
+                chat_id = str(msg.get("chat", {}).get("id"))
 
-    except Exception as e:
-        print("❌ Ошибка в run_trading_bot:", e)
+                if chat_id == CHAT_ID:
+                    agent.handle_command(text, SYMBOLS)
+
+        except Exception as e:
+            print("❌ Telegram polling error:", e)
+
+        time.sleep(2)
+
+
+# --------------------------------------------------
+# Планировщик
+# --------------------------------------------------
+def scheduled_analysis():
+    print("⏱ Scheduled analysis")
+    agent.run_analysis(SYMBOLS)
 
 
 def scheduler_loop():
-    """Отдельный поток для планировщика"""
-    print("⏱️ Scheduler started! Every 10 min.")
-
-    # Каждые 10 минут запуск анализа
-    schedule.every(10).minutes.do(run_trading_bot)
-
-    # Первый запуск сразу
-    run_trading_bot()
+    schedule.every(10).minutes.do(scheduled_analysis)
+    scheduled_analysis()
 
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 
-# ============================================================
-# ЗАПУСК ВСЕГО БОТА
-# ============================================================
+# --------------------------------------------------
+# START
+# --------------------------------------------------
 if __name__ == "__main__":
-    print("🔥 bot_runner.py STARTED (НОВАЯ BINGX ВЕРСИЯ)")
-    print("🔧 DEBUG ENV:")
-    print("BOT_TOKEN:", BOT_TOKEN)
-    print("CHAT_ID:", CHAT_ID)
-    print("CRYPTOS:", CRYPTOS)
+    print("🔥 Bot started (CoinGecko version)")
+    print("SYMBOLS:", SYMBOLS)
 
-    # Запуск планировщика
-    thread = threading.Thread(target=scheduler_loop, daemon=True)
-    thread.start()
+    threading.Thread(target=listen_commands, daemon=True).start()
+    threading.Thread(target=scheduler_loop, daemon=True).start()
 
-    # Webhook URL Render → Telegram
-    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/webhook"
-    set_webhook_url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
-
-    try:
-        requests.post(set_webhook_url, data={"url": webhook_url})
-        print(f"🌍 Webhook установлен: {webhook_url}")
-    except Exception as e:
-        print("⚠️ Ошибка установки webhook:", e)
-
-    print("🌐 Flask server starting...")
-    app.run(host="0.0.0.0", port=10000)
+    while True:
+        time.sleep(60)
