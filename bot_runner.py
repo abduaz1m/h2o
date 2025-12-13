@@ -8,15 +8,13 @@ from crypto_trading_agent import CryptoTradingAgent
 from server import app
 
 
-# ==========================================================
-#   ФУНКЦИЯ АНАЛИЗА
-# ==========================================================
 def run_trading_bot():
-    bot_token = os.getenv('BOT_TOKEN')
-    chat_id = os.getenv('CHAT_ID')
-    cryptos = os.getenv('CRYPTOS', 'bitcoin,ethereum').split(',')
+    """Запуск анализа криптовалют"""
+    bot_token = os.getenv("BOT_TOKEN")
+    chat_id = os.getenv("CHAT_ID")
+    cryptos = os.getenv("CRYPTOS", "bitcoin,ethereum").split(",")
 
-    print("🔍 DEBUG:")
+    print("\n🔍 DEBUG:")
     print("BOT_TOKEN:", bot_token)
     print("CHAT_ID:", chat_id)
     print("CRYPTOS:", cryptos)
@@ -30,46 +28,38 @@ def run_trading_bot():
             telegram_bot_token=bot_token,
             telegram_chat_id=chat_id
         )
-
-        agent.run_analysis([c.strip() for c in cryptos])
+        agent.run_analysis(cryptos)
         print("✅ Анализ завершён")
 
     except Exception as e:
         print("❌ Ошибка в run_trading_bot:", e)
 
 
-
-# ==========================================================
-#   ПЛАНИРОВЩИК
-# ==========================================================
 def start_scheduler():
+    """Фоновый планировщик"""
     print("📅 Планировщик запущен. Анализ каждые 10 минут.")
 
-    # каждый запуск — в отдельном потоке
+    # Каждый запуск — в новом потоке
     schedule.every(10).minutes.do(
         lambda: threading.Thread(target=run_trading_bot, daemon=True).start()
     )
 
-    # первый запуск сразу
+    # Первый запуск — сразу и тоже в отдельном потоке
     threading.Thread(target=run_trading_bot, daemon=True).start()
 
+    # Цикл планировщика
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 
-
-# ==========================================================
-#   ЗАПУСК SCHEDULER
-# ==========================================================
+# Запускаем scheduler в отдельном потоке
 scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
 scheduler_thread.start()
 print("🔥 Scheduler поток запущен!")
 
 
-# ==========================================================
-#   ЗАПУСК FLASK
-# ==========================================================
+# Запускаем Flask (держит Render живым)
 if __name__ == "__main__":
     print("🌐 Запускается Flask веб-сервер...")
     app.run(host="0.0.0.0", port=10000)
