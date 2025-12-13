@@ -25,27 +25,37 @@ def check_commands():
     global LAST_UPDATE_ID
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-    r = requests.get(url, timeout=10).json()
+    params = {
+        "timeout": 10,
+        "offset": LAST_UPDATE_ID + 1
+    }
 
-    for upd in r.get("result", []):
-        update_id = upd["update_id"]
-        if update_id <= LAST_UPDATE_ID:
-            continue
+    r = requests.get(url, params=params, timeout=15)
+    data = r.json()
 
-        LAST_UPDATE_ID = update_id
+    for upd in data.get("result", []):
+        LAST_UPDATE_ID = upd["update_id"]
 
-        text = upd.get("message", {}).get("text", "")
-        chat_id = str(upd.get("message", {}).get("chat", {}).get("id"))
+        message = upd.get("message", {})
+        text = message.get("text", "")
+        chat_id = str(message.get("chat", {}).get("id"))
 
+        # ❗️игнорируем чужие чаты
         if chat_id != CHAT_ID:
             continue
 
+        print(f"📩 COMMAND RECEIVED: {text}")
+
         if text == "/check":
-            agent.send_message("🔍 Запускаю быстрый анализ...")
+            agent.send_message("🔍 Выполняю быстрый анализ (CoinGecko)...")
             agent.run_analysis(CRYPTOS)
 
         elif text == "/status":
-            agent.send_message("✅ Бот работает. Анализ каждые 10 минут.")
+            agent.send_message(
+                "✅ Бот работает\n"
+                "⏱ Авто-анализ каждые 10 минут\n"
+                f"🪙 Монеты: {', '.join(CRYPTOS)}"
+            )
 
 # ---------- Планировщик ----------
 def scheduled_analysis():
