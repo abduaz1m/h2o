@@ -28,9 +28,8 @@ def listen_for_commands(agent, cryptos):
 
                     if "message" in update:
                         text = update["message"].get("text", "")
-                        print(f"📩 Получена команда: {text}")
+                        print(f"📩 Команда получена: {text}")
 
-                        # передаём команду в класс агента
                         agent.handle_command(text, cryptos)
 
         except Exception as e:
@@ -62,16 +61,19 @@ def run_trading_bot():
             telegram_chat_id=chat_id
         )
 
-        # 🚀 Запускаем обработчик команд /check
-        threading.Thread(
-            target=listen_for_commands,
-            args=(agent, cryptos),
-            daemon=True
-        ).start()
-
-        # Запуск анализа
+        # 🚀 СНАЧАЛА выполняем анализ
         print("🚀 START ANALYSIS...")
         agent.run_analysis(cryptos)
+
+        # 🔥 ПОСЛЕ анализа запускаем командный слушатель (один раз)
+        if not hasattr(run_trading_bot, "listener_started"):
+            threading.Thread(
+                target=listen_for_commands,
+                args=(agent, cryptos),
+                daemon=True
+            ).start()
+
+            run_trading_bot.listener_started = True
 
     except Exception as e:
         print("❌ Ошибка в run_trading_bot:", e)
@@ -81,8 +83,7 @@ def run_trading_bot():
 # Планировщик (каждые 10 минут)
 # ----------------------------------------------------------
 def start_scheduler():
-    print("⏱️ Scheduler started! Every 10 min.")
-
+    print("⏱️ Scheduler started! Every 1 min.")
     schedule.every(10).minutes.do(run_trading_bot)
 
     # Первый запуск сразу!
@@ -99,7 +100,6 @@ def start_scheduler():
 if __name__ == "__main__":
     print("🔥 bot_runner.py STARTED (НОВАЯ ФИНАЛЬНАЯ ВЕРСИЯ)")
 
-    # Scheduler в отдельном потоке
     threading.Thread(target=start_scheduler, daemon=True).start()
 
     print("🌐 Flask server starting...")
