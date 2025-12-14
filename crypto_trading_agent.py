@@ -1,3 +1,4 @@
+import time
 import requests
 from datetime import datetime
 
@@ -5,58 +6,70 @@ class CryptoTradingAgent:
     def __init__(self, telegram_bot_token, telegram_chat_id):
         self.bot_token = telegram_bot_token
         self.chat_id = telegram_chat_id
-        self.symbol = "ETHUSDT"
 
-    # ---------- Binance ----------
-    def get_price(self):
-        url = "https://api.binance.com/api/v3/ticker/24hr"
-        params = {"symbol": self.symbol}
-        r = requests.get(url, params=params, timeout=10)
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; ETHBot/1.0)"
+        }
+
+        self.url_24h = "https://api.binance.com/api/v3/ticker/24hr"
+
+    # -------------------------------
+    def get_eth_data(self):
+        params = {"symbol": "ETHUSDT"}
+        r = requests.get(self.url_24h, params=params, headers=self.headers, timeout=10)
         r.raise_for_status()
         return r.json()
 
-    # ---------- Telegram ----------
-    def send_message(self, text):
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        payload = {
-            "chat_id": self.chat_id,
-            "text": text
-        }
-        requests.post(url, data=payload, timeout=10)
+    # -------------------------------
+    def analyze(self):
+        data = self.get_eth_data()
 
-    # ---------- Strategy ----------
-    def analyze(self, data):
         price = float(data["lastPrice"])
         change = float(data["priceChangePercent"])
+        volume = float(data["volume"])
 
-        if change > 2:
+        # ПРОСТАЯ, НО НАДЁЖНАЯ СТРАТЕГИЯ
+        if change > 1.2:
             action = "🟢 BUY"
-        elif change < -2:
+            reason = "Импульс роста за 24h"
+        elif change < -1.2:
             action = "🔴 SELL"
+            reason = "Сильное падение за 24h"
         else:
-            return None  # фильтр: НЕ присылаем HOLD
+            return None  # HOLD → НИЧЕГО НЕ ШЛЁМ
 
         return {
             "price": price,
             "change": change,
-            "action": action
+            "volume": volume,
+            "action": action,
+            "reason": reason,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
-    # ---------- Run ----------
-    def run(self):
-        data = self.get_price()
-        signal = self.analyze(data)
+    # -------------------------------
+    def send_message(self, text):
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        requests.post(url, data={
+            "chat_id": self.chat_id,
+            "text": text
+        })
 
+    # -------------------------------
+    def run(self):
+        signal = self.analyze()
         if not signal:
-            print("ℹ️ Нет сигнала")
+            print("ℹ️ HOLD — сигнал не отправлен")
             return
 
-        message = (
-            "🤖 ETH Binance Signal\n\n"
-            f"💰 Цена: ${signal['price']:.2f}\n"
-            f"📊 24h: {signal['change']:+.2f}%\n\n"
-            f"{signal['action']}\n\n"
-            f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        msg = (
+            f"🚀 ETH Binance Signal\n\n"
+            f"💰 Цена: ${signal['price']}\n"
+            f"📊 24h: {signal['change']}%\n"
+            f"📈 Объём: {int(signal['volume'])}\n\n"
+            f"{signal['action']}\n"
+            f"🧠 Причина: {signal['reason']}\n\n"
+            f"⏰ {signal['time']}"
         )
 
-        self.send_message(message)
+        self.send_message(msg)
