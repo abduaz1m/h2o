@@ -3,12 +3,14 @@ import time
 import threading
 from crypto_trading_agent import CryptoTradingAgent
 
-# =========================
+# ==============================
 # ENV
-# =========================
+# ==============================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
+
+if not BOT_TOKEN or not CHAT_ID:
+    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы в Render ENV")
 
 SYMBOL = "ethereum"
 INTERVAL = 600  # 10 минут
@@ -17,37 +19,45 @@ print("🔥 ETH BOT STARTED (FINAL VERSION)")
 print(f"📌 SYMBOL: {SYMBOL}")
 print(f"⏱ INTERVAL: {INTERVAL} sec")
 
-# =========================
-# INIT AGENT
-# =========================
+# ==============================
+# Agent
+# ==============================
 agent = CryptoTradingAgent(
     telegram_bot_token=BOT_TOKEN,
-    telegram_chat_id=CHAT_ID,
-    coingecko_api_key=COINGECKO_API_KEY
+    telegram_chat_id=CHAT_ID
 )
 
-# =========================
-# ANALYSIS LOOP
-# =========================
+# ==============================
+# Main loop
+# ==============================
 def run_loop():
-    # Сообщение при старте
+    # Сообщение при старте (1 раз)
     agent.send_message("🚀 ETH Bot запущен и работает в фоне")
 
     while True:
         try:
-            print("🔍 Анализ ETH...")
-            agent.run()   # анализ + отправка сигнала
-        except Exception as e:
-            print("❌ ERROR:", e)
-            agent.send_message(f"❌ Ошибка бота:\n{e}")
+            print("📊 Анализ ETH...")
+            signal = agent.run()
 
+            if signal:
+                agent.send_message(signal)
+            else:
+                print("ℹ️ Нет BUY/SELL сигнала")
+
+        except Exception as e:
+            error_msg = f"❌ Ошибка в боте: {e}"
+            print(error_msg)
+            agent.send_message(error_msg)
+
+        # ⏱ защита от лимитов
         time.sleep(INTERVAL)
 
 
-# =========================
-# START BACKGROUND WORKER
-# =========================
-threading.Thread(target=run_loop, daemon=True).start()
+# ==============================
+# Start background thread
+# ==============================
+thread = threading.Thread(target=run_loop, daemon=True)
+thread.start()
 
 # Render Background Worker не должен завершаться
 while True:
