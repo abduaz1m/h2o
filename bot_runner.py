@@ -1,23 +1,45 @@
 import os
 import time
-from crypto_trading_agent import CryptoTradingAgent
+import requests
+from trading_agent import TradingAgent
+from llm_explainer import explain
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-if not BOT_TOKEN or not CHAT_ID:
-    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы")
+agent = TradingAgent()
 
-agent = CryptoTradingAgent(
-    telegram_token=BOT_TOKEN,
-    chat_id=CHAT_ID
-)
+def send(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": CHAT_ID, "text": text})
 
-print("🚀 ETH OKX Bot запущен (15m, Futures, Background Worker)")
+print("🔥 OKX ETH BOT STARTED")
 
 while True:
     try:
-        agent.run()
+        signal = agent.analyze()
+        if signal:
+            ai_text = explain(signal)
+            msg = f"""
+📊 ETH FUTURES SIGNAL (15m)
+
+📍 Signal: {signal['signal']}
+💰 Price: {signal['price']:.2f}
+📈 EMA50 / EMA200
+RSI: {signal['rsi']:.2f}
+
+🎯 TP: {signal['tp']:.2f}
+🛑 SL: {signal['sl']:.2f}
+⚖️ Leverage: x{signal['leverage']}
+
+🧠 AI:
+{ai_text}
+
+⏰ {signal['time']}
+"""
+            send(msg)
+            time.sleep(900)  # анти-дубликаты
+        time.sleep(60)
     except Exception as e:
-        agent.send_message(f"⚠️ Ошибка бота:\n{e}")
-    time.sleep(900)  # ⏱ 15 минут
+        print("ERROR:", e)
+        time.sleep(30)
