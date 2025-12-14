@@ -1,98 +1,54 @@
 import os
 import time
 import threading
-import requests
-
 from crypto_trading_agent import CryptoTradingAgent
 
-# ================== ENV ==================
+# =========================
+# ENV
+# =========================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
 SYMBOL = "ethereum"
 INTERVAL = 600  # 10 минут
 
-if not BOT_TOKEN or not CHAT_ID:
-    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы в Render ENV")
-
 print("🔥 ETH BOT STARTED (FINAL VERSION)")
-print("📌 SYMBOL:", SYMBOL)
-print("⏱ INTERVAL:", INTERVAL, "sec")
+print(f"📌 SYMBOL: {SYMBOL}")
+print(f"⏱ INTERVAL: {INTERVAL} sec")
 
-# ================== AGENT ==================
+# =========================
+# INIT AGENT
+# =========================
 agent = CryptoTradingAgent(
     telegram_bot_token=BOT_TOKEN,
-    telegram_chat_id=CHAT_ID
+    telegram_chat_id=CHAT_ID,
+    coingecko_api_key=COINGECKO_API_KEY
 )
 
-# ================== TELEGRAM API ==================
-TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-last_update_id = None
-
-
-def send(text: str):
-    requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        data={"chat_id": CHAT_ID, "text": text}
-    )
-
-
-# ================== COMMAND HANDLER ==================
-def command_listener():
-    global last_update_id
-    print("👂 Командный слушатель запущен")
+# =========================
+# ANALYSIS LOOP
+# =========================
+def run_loop():
+    # Сообщение при старте
+    agent.send_message("🚀 ETH Bot запущен и работает в фоне")
 
     while True:
         try:
-            params = {"timeout": 30}
-            if last_update_id:
-                params["offset"] = last_update_id + 1
-
-            r = requests.get(f"{TELEGRAM_API}/getUpdates", params=params, timeout=35)
-            data = r.json()
-
-            if not data.get("ok"):
-                continue
-
-            for update in data["result"]:
-                last_update_id = update["update_id"]
-
-                message = update.get("message", {})
-                text = message.get("text", "")
-
-                if not text:
-                    continue
-
-                if text == "/status":
-                    send("✅ ETH Bot работает и ждёт сигналов")
-
-                elif text == "/check":
-                    send("🔍 Запускаю анализ ETH...")
-                    agent.run()  # принудительный анализ
-
+            print("🔍 Анализ ETH...")
+            agent.run()   # анализ + отправка сигнала
         except Exception as e:
-            print("❌ Command listener error:", e)
-            time.sleep(5)
-
-
-# ================== SCHEDULED ANALYSIS ==================
-def scheduled_runner():
-    while True:
-        try:
-            agent.run()
-        except Exception as e:
-            print("❌ Scheduled error:", e)
+            print("❌ ERROR:", e)
+            agent.send_message(f"❌ Ошибка бота:\n{e}")
 
         time.sleep(INTERVAL)
 
 
-# ================== START ==================
-send("🚀 ETH Bot запущен и работает в фоне")
+# =========================
+# START BACKGROUND WORKER
+# =========================
+threading.Thread(target=run_loop, daemon=True).start()
 
-threading.Thread(target=command_listener, daemon=True).start()
-threading.Thread(target=scheduled_runner, daemon=True).start()
-
-# держим процесс живым
+# Render Background Worker не должен завершаться
 while True:
-    time.sleep(3600)
+    time.sleep(60)
