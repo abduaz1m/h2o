@@ -1,120 +1,66 @@
 import os
 import time
-import requests
 import threading
+import traceback
+
 from crypto_trading_agent import CryptoTradingAgent
 
-# ==============================
+# =========================
 # ENV
-# ==============================
+# =========================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 if not BOT_TOKEN or not CHAT_ID:
     raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы в Render ENV")
 
-# ==============================
-# CONFIG
-# ==============================
-ANALYSIS_INTERVAL = 10 * 60  # 10 минут
-SYMBOL = "ethereum"          # ❗ ТОЛЬКО ETH
+# =========================
+# НАСТРОЙКИ
+# =========================
+SYMBOL = "ethereum"      # ❗️ТОЛЬКО ETH
+INTERVAL_SEC = 10 * 60   # 10 минут
 
 print("🔥 ETH BOT STARTED (FINAL VERSION)")
-print("📌 SYMBOL:", SYMBOL)
+print(f"📌 SYMBOL: {SYMBOL}")
+print(f"⏱ INTERVAL: {INTERVAL_SEC} sec")
 
-# ==============================
+# =========================
 # INIT AGENT
-# ==============================
+# =========================
 agent = CryptoTradingAgent(
     telegram_bot_token=BOT_TOKEN,
     telegram_chat_id=CHAT_ID
 )
 
-# ==============================
-# TELEGRAM API
-# ==============================
-BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-def send_message(text: str):
-    requests.post(
-        f"{BASE_URL}/sendMessage",
-        data={"chat_id": CHAT_ID, "text": text}
-    )
-
-# ==============================
-# COMMAND HANDLER
-# ==============================
-def handle_command(text: str):
-    text = text.strip().lower()
-
-    if text == "/check":
-        send_message("🔍 Запускаю анализ ETH...")
-        agent.run_once()
-        return
-
-    if text == "/status":
-        send_message(
-            "🟢 ETH Bot активен\n"
-            "⏱ Интервал: 10 минут\n"
-            "📊 Индикаторы: RSI / EMA\n"
-            "🎯 Только BUY / SELL"
-        )
-        return
-
-# ==============================
-# TELEGRAM LONG POLLING
-# ==============================
-def telegram_listener():
-    print("👂 Telegram listener started")
-    offset = None
-
+# =========================
+# ОСНОВНОЙ ЦИКЛ
+# =========================
+def run_loop():
     while True:
         try:
-            resp = requests.get(
-                f"{BASE_URL}/getUpdates",
-                params={"timeout": 60, "offset": offset},
-                timeout=90
-            ).json()
-
-            for update in resp.get("result", []):
-                offset = update["update_id"] + 1
-
-                message = update.get("message")
-                if not message:
-                    continue
-
-                if str(message.get("chat", {}).get("id")) != str(CHAT_ID):
-                    continue
-
-                text = message.get("text", "")
-                if text.startswith("/"):
-                    handle_command(text)
+            print("🚀 Запуск анализа ETH...")
+            agent.run()   # ⬅️ внутри уже RSI / EMA / TP / SL / BUY|SELL
+            print("✅ Анализ завершён")
 
         except Exception as e:
-            print("❌ Telegram error:", e)
-            time.sleep(5)
+            print("❌ Ошибка в анализе:")
+            traceback.print_exc()
 
-# ==============================
-# SCHEDULED ANALYSIS
-# ==============================
-def scheduled_analysis():
-    while True:
-        try:
-            print("⏱ Scheduled ETH analysis...")
-            agent.run_once()
-        except Exception as e:
-            print("❌ Analysis error:", e)
+            # Чтобы бот НЕ ПАДАЛ
+            try:
+                agent.send_message(
+                    "⚠️ Ошибка анализа ETH\n"
+                    "Бот продолжит работу автоматически."
+                )
+            except:
+                pass
 
-        time.sleep(ANALYSIS_INTERVAL)
+        # 🔒 защита от 429 / перегрузки API
+        time.sleep(INTERVAL_SEC)
 
-# ==============================
-# START THREADS
-# ==============================
-threading.Thread(target=telegram_listener, daemon=True).start()
-threading.Thread(target=scheduled_analysis, daemon=True).start()
 
-# ==============================
-# KEEP ALIVE
-# ==============================
-while True:
-    time.sleep(60)
+# =========================
+# START (Background Worker)
+# =========================
+if __name__ == "__main__":
+    run_loop()
