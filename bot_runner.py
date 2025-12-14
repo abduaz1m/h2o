@@ -1,140 +1,98 @@
 import os
 import time
+import threading
 import requests
-import statistics
-from datetime import datetime
 
-# ================== CONFIG ==================
+from crypto_trading_agent import CryptoTradingAgent
+
+# ================== ENV ==================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-SYMBOL_ID = "ethereum"      # CoinGecko ID
-INTERVAL_SEC = 600          # 10 минут
-COINGECKO_URL = "https://api.coingecko.com/api/v3"
+SYMBOL = "ethereum"
+INTERVAL = 600  # 10 минут
 
 if not BOT_TOKEN or not CHAT_ID:
-    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы")
+    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы в Render ENV")
 
 print("🔥 ETH BOT STARTED (FINAL VERSION)")
-print(f"🔹 SYMBOL: {SYMBOL_ID}")
-print(f"🔹 INTERVAL: {INTERVAL_SEC} sec")
+print("📌 SYMBOL:", SYMBOL)
+print("⏱ INTERVAL:", INTERVAL, "sec")
 
-# ================== TELEGRAM ==================
-def send_telegram(text: str):
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": CHAT_ID,
-            "text": text,
-            "parse_mode": "HTML"
-        }
-        requests.post(url, data=payload, timeout=10)
-    except Exception as e:
-        print("❌ Telegram error:", e)
+# ================== AGENT ==================
+agent = CryptoTradingAgent(
+    telegram_bot_token=BOT_TOKEN,
+    telegram_chat_id=CHAT_ID
+)
 
-# ================== DATA ==================
-def get_prices():
-    """
-    Берём минутные цены за 1 день (1440 точек)
-    """
-    url = f"{COINGECKO_URL}/coins/{SYMBOL_ID}/market_chart"
-    params = {
-        "vs_currency": "usd",
-        "days": 1,
-        "interval": "minutely"
-    }
-    r = requests.get(url, params=params, timeout=15)
-    r.raise_for_status()
-    prices = [p[1] for p in r.json()["prices"]]
-    return prices
+# ================== TELEGRAM API ==================
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# ================== INDICATORS ==================
-def ema(values, period):
-    k = 2 / (period + 1)
-    ema_val = values[0]
-    for v in values[1:]:
-        ema_val = v * k + ema_val * (1 - k)
-    return ema_val
+last_update_id = None
 
-def rsi(values, period=14):
-    gains, losses = [], []
-    for i in range(1, period + 1):
-        delta = values[-i] - values[-i - 1]
-        if delta >= 0:
-            gains.append(delta)
-        else:
-            losses.append(abs(delta))
 
-    avg_gain = sum(gains) / period if gains else 0.0001
-    avg_loss = sum(losses) / period if losses else 0.0001
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
-
-# ================== STRATEGY ==================
-def analyze():
-    prices = get_prices()
-    price = prices[-1]
-
-    ema_fast = ema(prices[-50:], 50)
-    ema_slow = ema(prices[-200:], 200)
-    rsi_val = rsi(prices)
-
-    signal = None
-    reason = ""
-
-    if ema_fast > ema_slow and rsi_val < 70:
-        signal = "🟢 BUY"
-        reason = "EMA50 > EMA200 и RSI < 70"
-    elif ema_fast < ema_slow and rsi_val > 30:
-        signal = "🔴 SELL"
-        reason = "EMA50 < EMA200 и RSI > 30"
-
-    if not signal:
-        return None
-
-    # TP / SL
-    if signal == "🟢 BUY":
-        tp = price * 1.03
-        sl = price * 0.98
-    else:
-        tp = price * 0.97
-        sl = price * 1.02
-
-    explanation = (
-        "AI-анализ:\n"
-        f"• Тренд: {'восходящий' if ema_fast > ema_slow else 'нисходящий'}\n"
-        f"• RSI: {rsi_val:.1f}\n"
-        f"• Импульс подтверждён EMA"
+def send(text: str):
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        data={"chat_id": CHAT_ID, "text": text}
     )
 
-    msg = (
-        f"🤖 <b>ETH SIGNAL (CoinGecko)</b>\n\n"
-        f"💰 Цена: ${price:,.2f}\n"
-        f"📊 RSI: {rsi_val:.1f}\n\n"
-        f"{signal}\n"
-        f"🎯 TP: ${tp:,.2f}\n"
-        f"🛑 SL: ${sl:,.2f}\n\n"
-        f"🧠 {reason}\n\n"
-        f"{explanation}\n\n"
-        f"⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
-    )
 
-    return msg
+# ================== COMMAND HANDLER ==================
+def command_listener():
+    global last_update_id
+    print("👂 Командный слушатель запущен")
 
-# ================== LOOP ==================
-send_telegram("🚀 ETH Bot запущен и работает в фоне")
+    while True:
+        try:
+            params = {"timeout": 30}
+            if last_update_id:
+                params["offset"] = last_update_id + 1
 
+            r = requests.get(f"{TELEGRAM_API}/getUpdates", params=params, timeout=35)
+            data = r.json()
+
+            if not data.get("ok"):
+                continue
+
+            for update in data["result"]:
+                last_update_id = update["update_id"]
+
+                message = update.get("message", {})
+                text = message.get("text", "")
+
+                if not text:
+                    continue
+
+                if text == "/status":
+                    send("✅ ETH Bot работает и ждёт сигналов")
+
+                elif text == "/check":
+                    send("🔍 Запускаю анализ ETH...")
+                    agent.run()  # принудительный анализ
+
+        except Exception as e:
+            print("❌ Command listener error:", e)
+            time.sleep(5)
+
+
+# ================== SCHEDULED ANALYSIS ==================
+def scheduled_runner():
+    while True:
+        try:
+            agent.run()
+        except Exception as e:
+            print("❌ Scheduled error:", e)
+
+        time.sleep(INTERVAL)
+
+
+# ================== START ==================
+send("🚀 ETH Bot запущен и работает в фоне")
+
+threading.Thread(target=command_listener, daemon=True).start()
+threading.Thread(target=scheduled_runner, daemon=True).start()
+
+# держим процесс живым
 while True:
-    try:
-        print("⏳ Анализ ETH...")
-        result = analyze()
-        if result:
-            send_telegram(result)
-            print("✅ Сигнал отправлен")
-        else:
-            print("⚪ Нет сигнала")
-
-    except Exception as e:
-        print("❌ Ошибка анализа:", e)
-
-    time.sleep(INTERVAL_SEC)
+    time.sleep(3600)
