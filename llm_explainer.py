@@ -1,35 +1,30 @@
-import requests
 import os
+import requests
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 
-def explain_signal(data: dict) -> str:
+def explain(signal):
+    if not OPENAI_KEY:
+        return "AI объяснение отключено (нет OPENAI_API_KEY)"
+
     prompt = f"""
-Ты крипто-трейдер.
-Объясни сигнал кратко и понятно.
-
-Данные:
-Цена: {data['price']}
-RSI: {data['rsi']}
-EMA20: {data['ema20']}
-EMA50: {data['ema50']}
-Сигнал: {data['signal']}
-
-Ответь на русском, 2–4 предложения.
+Ты трейдер.
+Объясни сигнал кратко:
+{signal}
 """
 
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
+    r = requests.post(
+        "https://api.openai.com/v1/chat/completions",
         headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Authorization": f"Bearer {OPENAI_KEY}",
             "Content-Type": "application/json"
         },
         json={
-            "model": "openai/gpt-4o-mini",
+            "model": "gpt-4o-mini",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.4
+            "max_tokens": 120
         },
-        timeout=15
+        timeout=20
     )
 
-    return response.json()["choices"][0]["message"]["content"]
+    return r.json()["choices"][0]["message"]["content"]
