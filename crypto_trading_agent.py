@@ -1,3 +1,4 @@
+from llm_explainer import explain_signal
 import requests
 import time
 from datetime import datetime
@@ -106,6 +107,14 @@ class CryptoTradingAgent:
             "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
             "explanation": explanation
         }
+       ai_text = explain_signal({
+            "price": price,
+            "rsi": rsi,
+            "ema20": ema20,
+            "ema50": ema50,
+            "signal": signal
+})
+
 
     # -----------------------------------------
     # Telegram
@@ -135,6 +144,7 @@ class CryptoTradingAgent:
             f"📊 RSI: {signal['rsi']:.2f}\n\n"
             f"🧠 AI:\n{signal['explanation']}\n\n"
             f"⏰ {signal['time']}"
+            f"\n🧠 AI-анализ:\n{ai_text}"
         )
 
         self.send_message(msg)
