@@ -1,74 +1,139 @@
-import time
 import requests
+import time
 from datetime import datetime
 
 class CryptoTradingAgent:
-    def __init__(self, telegram_bot_token, telegram_chat_id):
+    def __init__(self, telegram_bot_token: str, telegram_chat_id: str):
         self.bot_token = telegram_bot_token
         self.chat_id = telegram_chat_id
 
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; ETHBot/1.0)"
+        # OKX public endpoint (НЕ требует API key)
+        self.okx_url = "https://www.okx.com/api/v5/market/candles"
+
+        self.symbol = "ETH-USDT"
+        self.interval = "15m"
+
+    # -----------------------------------------
+    # Получение свечей
+    # -----------------------------------------
+    def get_candles(self, limit=100):
+        params = {
+            "instId": self.symbol,
+            "bar": self.interval,
+            "limit": limit
         }
 
-        self.url_24h = "https://api.binance.com/api/v3/ticker/24hr"
-
-    # -------------------------------
-    def get_eth_data(self):
-        params = {"symbol": "ETHUSDT"}
-        r = requests.get(self.url_24h, params=params, headers=self.headers, timeout=10)
+        r = requests.get(self.okx_url, params=params, timeout=10)
         r.raise_for_status()
-        return r.json()
+        data = r.json()
 
-    # -------------------------------
+        if data.get("code") != "0":
+            raise Exception(f"OKX error: {data}")
+
+        return data["data"]
+
+    # -----------------------------------------
+    # EMA
+    # -----------------------------------------
+    def ema(self, prices, period):
+        k = 2 / (period + 1)
+        ema_val = prices[0]
+        for p in prices[1:]:
+            ema_val = p * k + ema_val * (1 - k)
+        return ema_val
+
+    # -----------------------------------------
+    # RSI
+    # -----------------------------------------
+    def rsi(self, prices, period=14):
+        gains, losses = [], []
+
+        for i in range(1, period + 1):
+            diff = prices[i] - prices[i - 1]
+            if diff >= 0:
+                gains.append(diff)
+                losses.append(0)
+            else:
+                gains.append(0)
+                losses.append(abs(diff))
+
+        avg_gain = sum(gains) / period
+        avg_loss = sum(losses) / period
+
+        if avg_loss == 0:
+            return 100
+
+        rs = avg_gain / avg_loss
+        return 100 - (100 / (1 + rs))
+
+    # -----------------------------------------
+    # Анализ
+    # -----------------------------------------
     def analyze(self):
-        data = self.get_eth_data()
+        candles = self.get_candles()
+        closes = [float(c[4]) for c in candles][::-1]
 
-        price = float(data["lastPrice"])
-        change = float(data["priceChangePercent"])
-        volume = float(data["volume"])
+        price = closes[-1]
+        ema50 = self.ema(closes[-50:], 50)
+        ema200 = self.ema(closes[-200:], 200)
+        rsi14 = self.rsi(closes[-15:])
 
-        # ПРОСТАЯ, НО НАДЁЖНАЯ СТРАТЕГИЯ
-        if change > 1.2:
-            action = "🟢 BUY"
-            reason = "Импульс роста за 24h"
-        elif change < -1.2:
-            action = "🔴 SELL"
-            reason = "Сильное падение за 24h"
-        else:
-            return None  # HOLD → НИЧЕГО НЕ ШЛЁМ
+        signal = None
+
+        if ema50 > ema200 and rsi14 < 65:
+            signal = "BUY"
+        elif ema50 < ema200 and rsi14 > 35:
+            signal = "SELL"
+
+        if not signal:
+            return None
+
+        tp = price * (1.02 if signal == "BUY" else 0.98)
+        sl = price * (0.98 if signal == "BUY" else 1.02)
+
+        explanation = (
+            f"EMA50 {'>' if ema50 > ema200 else '<'} EMA200\n"
+            f"RSI: {rsi14:.2f}\n"
+            f"Тренд подтверждён"
+        )
 
         return {
+            "signal": signal,
             "price": price,
-            "change": change,
-            "volume": volume,
-            "action": action,
-            "reason": reason,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "tp": tp,
+            "sl": sl,
+            "rsi": rsi14,
+            "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+            "explanation": explanation
         }
 
-    # -------------------------------
+    # -----------------------------------------
+    # Telegram
+    # -----------------------------------------
     def send_message(self, text):
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        requests.post(url, data={
+        payload = {
             "chat_id": self.chat_id,
             "text": text
-        })
+        }
+        requests.post(url, data=payload, timeout=10)
 
-    # -------------------------------
+    # -----------------------------------------
+    # Запуск
+    # -----------------------------------------
     def run(self):
         signal = self.analyze()
         if not signal:
-            print("ℹ️ HOLD — сигнал не отправлен")
             return
 
         msg = (
-            f"🚀 ETH Binance Signal\n\n"
-            f"💰 Цена: ${signal['price']}\n"
-            f"📊 24h: {signal['change']}%\n"
-            f"📈 Объём: {int(signal['volume'])}\n\n"
-            f"{signal['action']}\n"
-            f"🧠 Причина: {signal['reason']}\n\n"
+            f"🚀 ETH OKX SIGNAL (15m)\n\n"
+            f"📌 Сигнал: {signal['signal']}\n"
+            f"💰 Цена: {signal['price']:.2f}\n"
+            f"🎯 TP: {signal['tp']:.2f}\n"
+            f"🛑 SL: {signal['sl']:.2f}\n"
+            f"📊 RSI: {signal['rsi']:.2f}\n\n"
+            f"🧠 AI:\n{signal['explanation']}\n\n"
             f"⏰ {signal['time']}"
         )
 
