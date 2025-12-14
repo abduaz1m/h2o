@@ -3,93 +3,119 @@ import time
 import numpy as np
 from datetime import datetime
 
-BINANCE_URL = "https://api.binance.com/api/v3/klines"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "application/json"
-}
-
 class CryptoTradingAgent:
-    def __init__(self, bot_token, chat_id):
-        self.bot_token = bot_token
-        self.chat_id = chat_id
+    def __init__(self, telegram_bot_token: str, telegram_chat_id: str):
+        self.bot_token = telegram_bot_token
+        self.chat_id = telegram_chat_id
+
         self.symbol = "ETHUSDT"
         self.interval = "15m"
+        self.limit = 200
 
-    # -----------------------------
-    def get_klines(self):
+        self.binance_url = "https://api.binance.com/api/v3/klines"
+
+    # -------------------------------
+    # Telegram
+    # -------------------------------
+    def send_message(self, text: str):
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        payload = {
+            "chat_id": self.chat_id,
+            "text": text,
+            "parse_mode": "HTML"
+        }
+        requests.post(url, data=payload, timeout=10)
+
+    # -------------------------------
+    # Binance data
+    # -------------------------------
+    def get_prices(self):
         params = {
             "symbol": self.symbol,
             "interval": self.interval,
-            "limit": 200
+            "limit": self.limit
         }
-        r = requests.get(BINANCE_URL, params=params, headers=HEADERS)
+        r = requests.get(self.binance_url, params=params, timeout=10)
         r.raise_for_status()
-        return r.json()
+        data = r.json()
 
-    # -----------------------------
+        closes = np.array([float(candle[4]) for candle in data])
+        return closes
+
+    # -------------------------------
+    # Indicators
+    # -------------------------------
     def ema(self, prices, period):
         weights = np.exp(np.linspace(-1., 0., period))
         weights /= weights.sum()
-        return np.convolve(prices, weights, mode='valid')[-1]
+        return np.convolve(prices, weights, mode="valid")
 
     def rsi(self, prices, period=14):
         deltas = np.diff(prices)
-        gains = deltas.clip(min=0)
-        losses = -deltas.clip(max=0)
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+
         avg_gain = np.mean(gains[-period:])
         avg_loss = np.mean(losses[-period:])
+
         if avg_loss == 0:
-            return 100
+            return 100.0
+
         rs = avg_gain / avg_loss
         return 100 - (100 / (1 + rs))
 
-    # -----------------------------
+    # -------------------------------
+    # Strategy
+    # -------------------------------
     def analyze(self):
-        klines = self.get_klines()
-        closes = np.array([float(k[4]) for k in klines])
+        prices = self.get_prices()
 
-        price = closes[-1]
-        rsi = self.rsi(closes)
-        ema50 = self.ema(closes, 50)
-        ema200 = self.ema(closes, 200)
+        ema_fast = self.ema(prices, 20)[-1]
+        ema_slow = self.ema(prices, 50)[-1]
+        rsi_val = self.rsi(prices)
 
-        signal = None
+        price = prices[-1]
+        action = None
 
-        if rsi < 30 and ema50 > ema200:
-            signal = "🟢 BUY"
-            tp = price * 1.03
-            sl = price * 0.98
-        elif rsi > 70 and ema50 < ema200:
-            signal = "🔴 SELL"
-            tp = price * 0.97
-            sl = price * 1.02
+        if ema_fast > ema_slow and rsi_val < 70:
+            action = "BUY"
+        elif ema_fast < ema_slow and rsi_val > 30:
+            action = "SELL"
         else:
-            return None
+            return None  # ❗ ФИЛЬТР — HOLD не отправляем
 
-        message = f"""
-🚀 ETH BINANCE SIGNAL
+        # TP / SL (пример)
+        if action == "BUY":
+            tp = price * 1.02
+            sl = price * 0.98
+        else:
+            tp = price * 0.98
+            sl = price * 1.02
 
-💰 Price: {price:.2f}
-📊 RSI: {rsi:.2f}
-📈 EMA50 / EMA200: {ema50:.2f} / {ema200:.2f}
+        explanation = (
+            f"EMA20 {'>' if ema_fast > ema_slow else '<'} EMA50\n"
+            f"RSI = {rsi_val:.2f}\n"
+            f"Тренд подтверждён"
+        )
 
-📌 Signal: {signal}
-🎯 TP: {tp:.2f}
-🛑 SL: {sl:.2f}
+        msg = (
+            f"🚀 <b>ETH Binance Signal</b>\n\n"
+            f"💰 Price: <b>${price:.2f}</b>\n"
+            f"📈 EMA20: {ema_fast:.2f}\n"
+            f"📉 EMA50: {ema_slow:.2f}\n"
+            f"📊 RSI: {rsi_val:.2f}\n\n"
+            f"👉 <b>{action}</b>\n"
+            f"🎯 TP: {tp:.2f}\n"
+            f"🛑 SL: {sl:.2f}\n\n"
+            f"🤖 AI:\n{explanation}\n\n"
+            f"⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        )
 
-🤖 AI: сигнал основан на RSI + тренде EMA
-⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}
-"""
-        return message.strip()
+        return msg
 
-    # -----------------------------
-    def send_message(self, text):
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        data = {"chat_id": self.chat_id, "text": text}
-        requests.post(url, data=data)
-
-    # -----------------------------
+    # -------------------------------
+    # Main run
+    # -------------------------------
     def run(self):
         signal = self.analyze()
         if signal:
