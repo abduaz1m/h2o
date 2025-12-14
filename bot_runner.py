@@ -5,21 +5,19 @@ from crypto_trading_agent import CryptoTradingAgent
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-INTERVAL_SECONDS = 15 * 60  # 15 минут
-
-print("🚀 ETH OKX BOT STARTED (15m, Background Worker)")
+if not BOT_TOKEN or not CHAT_ID:
+    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы")
 
 agent = CryptoTradingAgent(
-    telegram_bot_token=BOT_TOKEN,
-    telegram_chat_id=CHAT_ID
+    telegram_token=BOT_TOKEN,
+    chat_id=CHAT_ID
 )
 
-# уведомление при запуске
-agent.send_message("🚀 ETH OKX бот запущен (таймфрейм 15m)")
+print("🚀 ETH OKX Bot запущен (15m, Futures, Background Worker)")
 
 while True:
     try:
         agent.run()
     except Exception as e:
         agent.send_message(f"⚠️ Ошибка бота:\n{e}")
-    time.sleep(INTERVAL_SECONDS)
+    time.sleep(900)  # ⏱ 15 минут
