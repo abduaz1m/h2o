@@ -1,67 +1,42 @@
 import os
 import time
-import threading
-from okx_strategy import OKXStrategy
-from llm_explainer import explain_signal
+from crypto_trading_agent import CryptoTradingAgent
+
+# ================== НАСТРОЙКИ ==================
+INTERVAL = 15 * 60        # 15 минут
+LEVERAGE = 10             # плечо 10x
+SYMBOLS = ["ETH", "SOL", "AVAX", "ARB", "OP"]  # без MATIC
+# ===============================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-SYMBOLS = [
-    "ETH-USDT-SWAP",
-    "OP-USDT-SWAP",
-    "ARB-USDT-SWAP",
-    "AVAX-USDT-SWAP",
-    "NEAR-USDT-SWAP"
-]
+if not BOT_TOKEN or not CHAT_ID:
+    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы")
 
-INTERVAL = 15 * 60   # 15 минут
-LEVERAGE = 10
+agent = CryptoTradingAgent(
+    telegram_bot_token=BOT_TOKEN,
+    telegram_chat_id=CHAT_ID,
+    leverage=LEVERAGE,
+    symbols=SYMBOLS,
+    timeframe="15m"
+)
 
-def send_message(text):
-    import requests
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, json={
-        "chat_id": CHAT_ID,
-        "text": text
-    })
+# 🔔 СООБЩЕНИЕ ТОЛЬКО 1 РАЗ
+agent.send_message(
+    "🚀 ETH OKX Bot запущен\n"
+    "⏱ Таймфрейм: 15m\n"
+    "⚙️ Плечо: 10x\n"
+    "📊 Монеты: ETH, SOL, AVAX, ARB, OP"
+)
 
-def run_loop():
-    send_message(
-        "🚀 ETH OKX Bot запущен\n"
-        "⏱ Таймфрейм: 15m\n"
-        "⚙️ Плечо: 10x\n"
-        "📊 Монеты: ETH / OP / ARB / AVAX / NEAR"
-    )
+print("✅ Bot started")
 
-    strategy = OKXStrategy()
+# 🔁 ОСНОВНОЙ ЦИКЛ
+while True:
+    try:
+        agent.run()
+    except Exception as e:
+        agent.send_message(f"⚠️ Ошибка: {e}")
 
-    while True:
-        for symbol in SYMBOLS:
-            try:
-                signal = strategy.analyze(symbol)
-
-                if signal["action"] in ("BUY", "SELL"):
-                    explanation = explain_signal(signal)
-                    msg = (
-                        f"📊 {symbol}\n"
-                        f"🧭 Сигнал: {signal['action']}\n"
-                        f"💰 Цена: {signal['price']}\n"
-                        f"📉 RSI: {signal['rsi']}\n"
-                        f"📈 EMA: {signal['ema_fast']} / {signal['ema_slow']}\n"
-                        f"🎯 TP: {signal['tp']}\n"
-                        f"🛑 SL: {signal['sl']}\n"
-                        f"⚙️ Плечо: 10x\n\n"
-                        f"🤖 AI:\n{explanation}"
-                    )
-                    send_message(msg)
-
-            except Exception as e:
-                send_message(f"⚠️ Ошибка {symbol}: {e}")
-
-        time.sleep(INTERVAL)
-
-if __name__ == "__main__":
-    threading.Thread(target=run_loop, daemon=True).start()
-    while True:
-        time.sleep(60)
+    time.sleep(INTERVAL)
