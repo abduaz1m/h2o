@@ -1,30 +1,48 @@
 import os
 import time
-import schedule
-from crypto_trading_agent import CryptoTradingAgent
+import requests
+from strategy import fetch_candles, add_indicators, generate_signal
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 if not BOT_TOKEN or not CHAT_ID:
-    raise RuntimeError("BOT_TOKEN или CHAT_ID не заданы")
+    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы")
 
-agent = CryptoTradingAgent(BOT_TOKEN, CHAT_ID)
+def send_message(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    requests.post(url, data={
+        "chat_id": CHAT_ID,
+        "text": text
+    })
 
-print("🔥 OKX ETH Futures Bot started (15m)")
+print("🚀 OKX ETH 15m BOT STARTED")
 
-def job():
-    try:
-        agent.run()
-    except Exception as e:
-        print("ERROR:", e)
-
-# каждые 15 минут
-schedule.every(15).minutes.do(job)
-
-# первый запуск
-job()
+last_signal = None
 
 while True:
-    schedule.run_pending()
-    time.sleep(5)
+    try:
+        df = fetch_candles()
+        df = add_indicators(df)
+
+        signal, leverage = generate_signal(df)
+
+        if signal and signal != last_signal:
+            price = df.iloc[-1]["c"]
+
+            msg = (
+                f"📊 ETH FUTURES SIGNAL (OKX 15m)\n\n"
+                f"Action: {signal}\n"
+                f"Price: {price}\n"
+                f"Leverage: x{leverage}\n\n"
+                f"Strategy: EMA20/50 + RSI\n"
+            )
+
+            send_message(msg)
+            last_signal = signal
+
+        time.sleep(60)
+
+    except Exception as e:
+        print("ERROR:", e)
+        time.sleep(60)
