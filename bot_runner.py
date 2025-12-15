@@ -14,7 +14,7 @@ CHAT_ID = os.getenv("CHAT_ID")
 if not BOT_TOKEN or not CHAT_ID:
     raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы")
 
-agent = CryptoTradingAgent(
+agent = TradingAgent(
     telegram_bot_token=BOT_TOKEN,
     telegram_chat_id=CHAT_ID,
     leverage=LEVERAGE,
