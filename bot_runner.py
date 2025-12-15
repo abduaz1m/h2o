@@ -1,6 +1,6 @@
 import os
 import time
-from crypto_trading_agent import CryptoTradingAgent
+from trading_agent import TradingAgent
 
 # ================== НАСТРОЙКИ ==================
 INTERVAL = 15 * 60        # 15 минут
