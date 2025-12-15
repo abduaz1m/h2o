@@ -1,26 +1,19 @@
 import os
 import time
-from agent import TradingAgent
+from trading_agent import TradingAgent
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-INTERVAL_SECONDS = 15 * 60  # 15 минут
-
 agent = TradingAgent(BOT_TOKEN, CHAT_ID)
 
-# 🔥 1 РАЗ ПРИ СТАРТЕ
-agent.send(
-    "🚀 ETH OKX Bot запущен\n"
-    "⏱ Таймфрейм: 15m\n"
-    "⚙️ Плечо: 10x"
-)
+# 🚀 СООБЩЕНИЕ ТОЛЬКО 1 РАЗ
+agent.send("🚀 ETH Bot запущен (таймфрейм 15m, плечо 10x)")
 
-# ♻️ ОСНОВНОЙ ЦИКЛ
 while True:
-    agent.analyze()
+    try:
+        agent.analyze()
+    except Exception as e:
+        agent.send(f"⚠️ Ошибка: {e}")
 
-    # ❤️ heartbeat раз в 15 минут
-    agent.send("💓 Bot alive | OKX 15m")
-
-    time.sleep(INTERVAL_SECONDS)
+    time.sleep(15 * 60)  # 15 минут
