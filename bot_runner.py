@@ -1,42 +1,26 @@
 import os
 import time
-from trading_agent import TradingAgent
-
-# ================== НАСТРОЙКИ ==================
-INTERVAL = 15 * 60        # 15 минут
-LEVERAGE = 10             # плечо 10x
-SYMBOLS = ["ETH", "SOL", "AVAX", "ARB", "OP"]  # без MATIC
-# ===============================================
+from agent import TradingAgent
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-if not BOT_TOKEN or not CHAT_ID:
-    raise RuntimeError("❌ BOT_TOKEN или CHAT_ID не заданы")
+INTERVAL_SECONDS = 15 * 60  # 15 минут
 
-agent = TradingAgent(
-    telegram_bot_token=BOT_TOKEN,
-    telegram_chat_id=CHAT_ID,
-    leverage=LEVERAGE,
-    symbols=SYMBOLS,
-    timeframe="15m"
-)
+agent = TradingAgent(BOT_TOKEN, CHAT_ID)
 
-# 🔔 СООБЩЕНИЕ ТОЛЬКО 1 РАЗ
-agent.send_message(
+# 🔥 1 РАЗ ПРИ СТАРТЕ
+agent.send(
     "🚀 ETH OKX Bot запущен\n"
     "⏱ Таймфрейм: 15m\n"
-    "⚙️ Плечо: 10x\n"
-    "📊 Монеты: ETH, SOL, AVAX, ARB, OP"
+    "⚙️ Плечо: 10x"
 )
 
-print("✅ Bot started")
-
-# 🔁 ОСНОВНОЙ ЦИКЛ
+# ♻️ ОСНОВНОЙ ЦИКЛ
 while True:
-    try:
-        agent.run()
-    except Exception as e:
-        agent.send_message(f"⚠️ Ошибка: {e}")
+    agent.analyze()
 
-    time.sleep(INTERVAL)
+    # ❤️ heartbeat раз в 15 минут
+    agent.send("💓 Bot alive | OKX 15m")
+
+    time.sleep(INTERVAL_SECONDS)
