@@ -1,4 +1,1 @@
 requests
-openai
-python-dotenv
-numpy
