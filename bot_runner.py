@@ -1,26 +1,30 @@
 import os
 import time
+from datetime import datetime, timedelta
 from agent import TradingAgent
 
+# Загрузка переменных (лучше использовать python-dotenv)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-INTERVAL_SECONDS = 15 * 60  # 15 минут
-
 agent = TradingAgent(BOT_TOKEN, CHAT_ID)
 
-# 🔥 1 РАЗ ПРИ СТАРТЕ
-agent.send(
-    "🚀 ETH OKX Bot запущен\n"
-    "⏱ Таймфрейм: 15m\n"
-    "⚙️ Плечо: 10x"
-)
+agent.send("🤖 AI Trader V2 Started\nWaiting for candle close...")
 
-# ♻️ ОСНОВНОЙ ЦИКЛ
 while True:
+    # Запускаем анализ
     agent.analyze()
 
-    # ❤️ heartbeat раз в 15 минут
-    agent.send("💓 Bot alive")
+    # СИНХРОНИЗАЦИЯ С ТАЙМФРЕЙМОМ
+    # Вычисляем сколько секунд осталось до следующих :00, :15, :30, :45 минут
+    now = datetime.now()
+    next_run = now + timedelta(minutes=15)
+    # Округляем до ближайших 15 минут
+    next_run = next_run.replace(second=0, microsecond=0, minute=(now.minute // 15 + 1) * 15 % 60)
+    if next_run.minute == 0 and now.minute >= 45: 
+        next_run += timedelta(hours=1) # Коррекция перехода часа
 
-    time.sleep(INTERVAL_SECONDS)
+    sleep_seconds = (next_run - now).total_seconds() + 5 # +5 сек задержки, чтобы свеча точно закрылась на бирже
+    
+    print(f"Sleeping for {int(sleep_seconds)}s until {next_run.strftime('%H:%M:%S')}")
+    time.sleep(sleep_seconds)
