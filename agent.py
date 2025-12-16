@@ -1,6 +1,8 @@
 import requests
 import time
-from datetime import datetime
+import pandas as pd
+import pandas_ta as ta
+from datetime import datetime, timezone
 
 OKX_URL = "https://www.okx.com/api/v5/market/candles"
 
@@ -13,91 +15,103 @@ SYMBOLS = {
 }
 
 INTERVAL = "15m"
-LEVERAGE = 10
-
 
 class TradingAgent:
     def __init__(self, bot_token, chat_id):
         self.bot_token = bot_token
         self.chat_id = chat_id
+        # Память бота: храним состояние, чтобы не спамить сигналами
+        # Структура: {'ETH': 'BUY', 'ARB': None ...}
+        self.positions = {symbol: None for symbol in SYMBOLS} 
 
-    # -------------------------
     def send(self, text):
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        requests.post(url, json={"chat_id": self.chat_id, "text": text})
+        try:
+            requests.post(url, json={"chat_id": self.chat_id, "text": text}, timeout=5)
+        except Exception as e:
+            print(f"Telegram Error: {e}")
 
-    # -------------------------
-    def get_candles(self, symbol):
-        r = requests.get(
-            OKX_URL,
-            params={
-                "instId": symbol,
-                "bar": INTERVAL,
-                "limit": 100
-            },
-            timeout=10
-        )
-        r.raise_for_status()
-        data = r.json()["data"]
-        closes = [float(c[4]) for c in data]
-        return closes[::-1]
+    def get_data(self, symbol):
+        try:
+            r = requests.get(
+                OKX_URL,
+                params={"instId": symbol, "bar": INTERVAL, "limit": 100},
+                timeout=10
+            )
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            if not data:
+                return None
+            
+            # Создаем DataFrame для удобной работы
+            df = pd.DataFrame(data, columns=["ts", "o", "h", "l", "c", "v", "volCcy", "volCcyQuote", "confirm"])
+            df = df.iloc[::-1].reset_index(drop=True) # Разворачиваем (старые сверху)
+            df["c"] = df["c"].astype(float)
+            df["h"] = df["h"].astype(float)
+            df["l"] = df["l"].astype(float)
+            return df
+        except Exception as e:
+            print(f"API Error {symbol}: {e}")
+            return None
 
-    # -------------------------
-    def ema(self, prices, period):
-        k = 2 / (period + 1)
-        ema = prices[0]
-        for p in prices[1:]:
-            ema = p * k + ema * (1 - k)
-        return ema
-
-    def rsi(self, prices, period=14):
-        gains, losses = 0, 0
-        for i in range(1, period + 1):
-            diff = prices[-i] - prices[-i - 1]
-            if diff > 0:
-                gains += diff
-            else:
-                losses -= diff
-        if losses == 0:
-            return 100
-        rs = gains / losses
-        return 100 - (100 / (1 + rs))
-
-    # -------------------------
     def analyze(self):
+        print(f"--- Analysis started at {datetime.now().strftime('%H:%M:%S')} ---")
+        
         for name, symbol in SYMBOLS.items():
-            try:
-                prices = self.get_candles(symbol)
-                ema_fast = self.ema(prices[-50:], 21)
-                ema_slow = self.ema(prices[-50:], 50)
-                rsi = self.rsi(prices)
+            df = self.get_data(symbol)
+            if df is None:
+                continue
 
-                price = prices[-1]
+            # 1. Расчет индикаторов через pandas_ta (быстро и точно)
+            df["ema_fast"] = ta.ema(df["c"], length=21)
+            df["ema_slow"] = ta.ema(df["c"], length=50)
+            df["rsi"] = ta.rsi(df["c"], length=14)
+            df["atr"] = ta.atr(df["h"], df["l"], df["c"], length=14)
 
-                if ema_fast > ema_slow and rsi < 70:
-                    side = "BUY"
-                    tp = round(price * 1.03, 4)
-                    sl = round(price * 0.97, 4)
-                elif ema_fast < ema_slow and rsi > 30:
-                    side = "SELL"
-                    tp = round(price * 0.97, 4)
-                    sl = round(price * 1.03, 4)
+            # Берем значения последней ЗАКРЫТОЙ свечи (предпоследняя строка, index -2)
+            # Последняя строка (index -1) - это текущая еще не закрытая свеча
+            curr = df.iloc[-2] 
+            price = curr["c"]
+            atr = curr["atr"]
+
+            # Логика сигналов
+            signal = None
+            
+            # Условие BUY
+            if curr["ema_fast"] > curr["ema_slow"] and curr["rsi"] < 70:
+                signal = "BUY"
+            
+            # Условие SELL
+            elif curr["ema_fast"] < curr["ema_slow"] and curr["rsi"] > 30:
+                signal = "SELL"
+
+            # 2. Фильтрация повторов (State Management)
+            if signal and self.positions[name] != signal:
+                
+                # Расчет динамического SL/TP на основе ATR (волатильности)
+                # Stop Loss = 2 * ATR, Take Profit = 3 * ATR
+                if signal == "BUY":
+                    sl = price - (atr * 2)
+                    tp = price + (atr * 3)
                 else:
-                    continue  # ❗ HOLD игнорируем
+                    sl = price + (atr * 2)
+                    tp = price - (atr * 3)
 
+                # Отправка
                 self.send(
-                    f"🚀 {name} OKX SIGNAL\n"
-                    f"⏱ TF: 15m | ⚙️ {LEVERAGE}x\n"
-                    f"📈 {side}\n"
-                    f"💰 Entry: {price}\n"
-                    f"🎯 TP: {tp}\n"
-                    f"🛑 SL: {sl}\n"
-                    f"📊 RSI: {round(rsi,1)}\n"
-                    f"🕒 {datetime.utcnow()}"
+                    f"🚀 {name} SIGNAL (Improved)\n"
+                    f"📈 {signal}\n"
+                    f"💰 Price: {price}\n"
+                    f"🎯 TP: {round(tp, 4)} | 🛑 SL: {round(sl, 4)}\n"
+                    f"📊 RSI: {round(curr['rsi'], 1)} | ATR: {round(atr, 4)}\n"
                 )
+                
+                # Запоминаем позицию
+                self.positions[name] = signal
+            
+            elif signal is None:
+                # Если сигнал пропал (флэт), сбрасываем состояние (опционально)
+                # self.positions[name] = None 
+                pass
 
-                time.sleep(2)
-
-            except Exception as e:
-                self.send(f"⚠️ {name} ERROR: {e}")
-                time.sleep(2)
+        print("--- Analysis finished ---")
