@@ -31,7 +31,28 @@ class TradingAgent:
             requests.post(url, json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
         except Exception as e:
             print(f"Telegram Error: {e}")
-
+            
+    def get_data(self, symbol):
+        try:
+            r = requests.get(
+                OKX_URL,
+                params={"instId": symbol, "bar": INTERVAL, "limit": 100},
+                timeout=10
+            )
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            if not data:
+                return None
+            
+            # Конвертация в DataFrame
+            df = pd.DataFrame(data, columns=["ts", "o", "h", "l", "c", "v", "volCcy", "volCcyQuote", "confirm"])
+            df = df.iloc[::-1].reset_index(drop=True) # Разворот (старые сверху)
+            df[["o", "h", "l", "c", "v"]] = df[["o", "h", "l", "c", "v"]].astype(float)
+            return df
+        except Exception as e:
+            print(f"Data Error {symbol}: {e}")
+            return None
+            
     def get_trend_4h(self, symbol):
         try:
             # Запрашиваем 4-часовые свечи
@@ -123,8 +144,7 @@ class TradingAgent:
         for name, symbol in SYMBOLS.items():
             # 1. Получаем данные 15m (как раньше)
             df = self.get_data(symbol)
-            if df is None:
-                continue
+            if df is None: continue
 
             # 2. Считаем индикаторы
             df["ema_fast"] = ta.ema(df["c"], length=21)
