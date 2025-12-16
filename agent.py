@@ -13,11 +13,17 @@ INTERVAL = "15m"
 # Список тикеров
 SYMBOLS = {
     "ETH": "ETH-USDT-SWAP",
+    "BNB": "BNB-USDT-SWAP",
+    "SOL": "SOL-USDT-SWAP",
+    "LTC": "LTC-USDT-SWAP",
+    "TON": "TON-USDT-SWAP",
+    "OKB": "OKB-USDT-SWAP",
+    "ASTR": "ASTR-USDT-SWAP",
+    "HYPE": "HYPE-USDT-SWAP",
     "ARB": "ARB-USDT-SWAP",
     "OP": "OP-USDT-SWAP",
     "LDO": "LDO-USDT-SWAP",
     "UNI": "UNI-USDT-SWAP",
-    "BTC": "BTC-USDT-SWAP",
 }
 
 class TradingAgent:
