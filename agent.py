@@ -10,6 +10,9 @@ OKX_URL = "https://www.okx.com/api/v5/market/candles"
 
 SYMBOLS = {
     "ETH": "ETH-USDT-SWAP",
+    "ARB": "ARB-USDT-SWAP",
+    "OP": "OP-USDT-SWAP",
+    "LDO": "LDO-USDT-SWAP",
 }
 
 INTERVAL = "15m"
