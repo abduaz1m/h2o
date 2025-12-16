@@ -1,3 +1,4 @@
+import time
 import os
 import requests
 import pandas as pd
@@ -45,39 +46,48 @@ class TradingAgent:
         except: return None
 
     # 🆕 НОВЫЙ МЕТОД: Анализ через LLM
+# В начало файла agent.py добавьте импорт time, если его нет
+    import time 
+
+    # ... (код класса)
+
     def ask_ai(self, symbol, side, price, rsi, atr, trend_strength):
         print(f"🧠 Asking AI about {symbol}...")
         
         prompt = f"""
-        Ты профессиональный крипто-трейдер. Оцени сделку.
+        Ты крипто-аналитик.
+        Тикер: {symbol}
+        Сигнал: {side}
+        Цена: {price}
+        RSI: {rsi}
+        ATR: {atr}
+        Тренд: {trend_strength}%
         
-        Вводные данные:
-        - Тикер: {symbol}
-        - Сигнал: {side} (Технический анализ сработал)
-        - Цена: {price}
-        - RSI (14): {rsi}
-        - ATR (волатильность): {atr}
-        - Сила тренда (разрыв EMA): {trend_strength}%
-        
-        Задача:
-        1. Оцени риск сделки от 1 до 10.
-        2. Дай краткий комментарий (1 предложение), стоит ли входить или это ложный сигнал.
-        3. Если RSI в экстремальной зоне (>70 для Long или <30 для Short), предупреди об опасности.
-        
-        Ответ верни в формате:
-        Risk: [Число]/10
-        Verdict: [Текст]
+        Оцени риск (1-10) и дай вердикт (1 фраза).
         """
 
-        try:
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini", # Дешевая и быстрая модель
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=100
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"AI Error: {e}"
+        # Пытаемся 3 раза, если получаем ошибку 429
+        max_retries = 3
+        for i in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=100
+                )
+                return response.choices[0].message.content
+            
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str:
+                    wait_time = (i + 1) * 5  # Ждем 5 сек, потом 10 сек...
+                    print(f"⚠️ Rate Limit (429). Waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue # Пробуем снова
+                else:
+                    return f"AI Error: {e}"
+        
+        return "⚠️ AI Limit Reached (Skip)"
 
     def analyze(self):
         print(f"--- AI Analysis Loop {datetime.now().strftime('%H:%M')} ---")
@@ -137,7 +147,9 @@ class TradingAgent:
                 )
                 
                 self.send(msg)
-                self.positions[name] = signal # Запоминаем
+                self.positions[name] = signal
+                print("⏳ Cooling down API...")
+                time.sleep(3)
 
             elif signal is None:
                 pass
