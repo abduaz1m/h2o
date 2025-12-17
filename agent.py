@@ -10,128 +10,102 @@ from openai import OpenAI
 OKX_URL = "https://www.okx.com/api/v5/market/candles"
 INTERVAL = "15m"
 
-# Список тикеров
+# Список монет
+# Полный список (Сбалансированный портфель: Топ + L1 + Мемы + AI)
 SYMBOLS = {
+    # 💎 Фундаментальные (Тяжеловесы)
+    "BTC": "BTC-USDT-SWAP",
     "ETH": "ETH-USDT-SWAP",
     "BNB": "BNB-USDT-SWAP",
     "SOL": "SOL-USDT-SWAP",
-    "LTC": "LTC-USDT-SWAP",
-    "TON": "TON-USDT-SWAP",
-    "OKB": "OKB-USDT-SWAP",
-    "ASTR": "ASTR-USDT-SWAP",
-    "HYPE": "HYPE-USDT-SWAP",
+    
+    # 🚀 Активные L1/L2 (Техничные движения)
     "ARB": "ARB-USDT-SWAP",
     "OP": "OP-USDT-SWAP",
-    "LDO": "LDO-USDT-SWAP",
-    "UNI": "UNI-USDT-SWAP",
+    "SUI": "SUI-USDT-SWAP",
+    "APT": "APT-USDT-SWAP",
+    "TIA": "TIA-USDT-SWAP",  # <-- Добавлено
+    "TON": "TON-USDT-SWAP",
+    
+    # 🐶 Мемы (Высокая волатильность - "топливо" для бота)
+    "DOGE": "DOGE-USDT-SWAP", # <-- Добавлено
+    "PEPE": "PEPE-USDT-SWAP", # <-- Добавлено
+    "WIF": "WIF-USDT-SWAP",   # <-- Добавлено
+    
+    # 🤖 Трендовые сектора (AI / Старая школа)
+    "FET": "FET-USDT-SWAP",   # <-- Добавлено (AI Сектор)
+    "XRP": "XRP-USDT-SWAP",   # <-- Добавлено
+    "LTC": "LTC-USDT-SWAP",
 }
 
 class TradingAgent:
     def __init__(self, bot_token, chat_id, openai_key):
         self.bot_token = bot_token
         self.chat_id = chat_id
-        # Подключение к AI (можно заменить base_url для DeepSeek, если нужно)
         self.client = OpenAI(api_key=openai_key)
-        
-        # Память позиций: { 'ETH': 'BUY', ... }
         self.positions = {symbol: None for symbol in SYMBOLS}
 
-    # ---------------------------------------------------
-    # 1. ОТПРАВКА В TELEGRAM
-    # ---------------------------------------------------
+    # 1. ОТПРАВКА
     def send(self, text):
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         try:
-            requests.post(
-                url, 
-                json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, 
-                timeout=5
-            )
-        except Exception as e:
-            print(f"⚠️ Telegram Error: {e}")
+            requests.post(url, json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
+        except: pass
 
-    # ---------------------------------------------------
-    # 2. ПОЛУЧЕНИЕ ДАННЫХ (15m)
-    # ---------------------------------------------------
+    # 2. ДАННЫЕ
     def get_data(self, symbol):
         try:
-            r = requests.get(
-                OKX_URL,
-                params={"instId": symbol, "bar": INTERVAL, "limit": 100},
-                timeout=10
-            )
-            r.raise_for_status()
+            r = requests.get(OKX_URL, params={"instId": symbol, "bar": INTERVAL, "limit": 100}, timeout=10)
+            if r.status_code != 200: return None
             data = r.json().get("data", [])
             if not data: return None
             
-            # DataFrame
             df = pd.DataFrame(data, columns=["ts", "o", "h", "l", "c", "v", "volCcy", "volCcyQuote", "confirm"])
             df = df.iloc[::-1].reset_index(drop=True)
             df[["o", "h", "l", "c", "v"]] = df[["o", "h", "l", "c", "v"]].astype(float)
             return df
-        except Exception as e:
-            print(f"❌ Data Error {symbol}: {e}")
-            return None
+        except: return None
 
-    # ---------------------------------------------------
-    # 3. ПОЛУЧЕНИЕ ГЛОБАЛЬНОГО ТРЕНДА (4H)
-    # ---------------------------------------------------
+    # 3. ГЛОБАЛЬНЫЙ ТРЕНД
     def get_trend_4h(self, symbol):
         try:
-            r = requests.get(
-                OKX_URL,
-                params={"instId": symbol, "bar": "4H", "limit": 100},
-                timeout=10
-            )
+            r = requests.get(OKX_URL, params={"instId": symbol, "bar": "4H", "limit": 100}, timeout=10)
             data = r.json().get("data", [])
             if not data: return "NEUTRAL"
-            
             df = pd.DataFrame(data, columns=["ts", "o", "h", "l", "c", "v", "volCcy", "volCcyQuote", "confirm"])
             df = df.iloc[::-1].reset_index(drop=True)
             df["c"] = df["c"].astype(float)
-
-            # EMA 50/200 Cross
             ema50 = ta.ema(df["c"], length=50).iloc[-1]
             ema200 = ta.ema(df["c"], length=200).iloc[-1]
-
             if ema50 > ema200: return "UP"
             if ema50 < ema200: return "DOWN"
             return "NEUTRAL"
-        except Exception as e:
-            print(f"⚠️ Trend 4H Error {symbol}: {e}")
-            return "NEUTRAL"
+        except: return "NEUTRAL"
 
-    # ---------------------------------------------------
-    # 4. 🔥 ПРОДВИНУТЫЙ AI АНАЛИЗ (HEDGE FUND PERSONA)
-    # ---------------------------------------------------
-    def ask_ai(self, symbol, side, price, rsi, atr, trend_strength, global_trend):
-        print(f"🧠 AI analyzing {symbol} ({side})...")
-        
-        # Промпт: Роль Хедж-фонд менеджера
+    # 4. AI АНАЛИЗ (С учетом ADX и Объема)
+    def ask_ai(self, symbol, side, price, rsi, adx, vol_ratio, global_trend):
+        print(f"🧠 AI analyzing {symbol}...")
         prompt = f"""
-        Ты Риск-менеджер крупного крипто-фонда. Твоя задача — жестко фильтровать сигналы.
+        Ты Аналитик. Фильтруй сигналы.
         
-        ВХОДНЫЕ ДАННЫЕ:
-        - Актив: {symbol}
-        - Сигнал (15m): {side}
-        - Глобальный тренд (4H): {global_trend}
-        - Цена: {price}
-        - RSI (14): {rsi} (Опасно: >70 для BUY, <30 для SELL)
-        - ATR (Волатильность): {atr}
-        - Сила импульса: {trend_strength}%
+        ДАННЫЕ:
+        - Тикер: {symbol}
+        - Сигнал: {side}
+        - Тренд 4H: {global_trend}
+        - ADX (Сила тренда): {adx} (Если < 25, рынок слабый/флэт)
+        - Volume Ratio: {vol_ratio} (Если > 1.0, объем выше среднего)
+        - RSI: {rsi}
         
-        ЗАДАЧА:
-        1. Сравни локальный сигнал ({side}) с глобальным трендом ({global_trend}).
-        2. Оцени риск входа по шкале 1-10.
-        3. Дай вердикт (Одобрено/Отклонено) и краткую причину.
+        ТВОЯ СТРАТЕГИЯ:
+        1. Если ADX < 20, это "шум". Отклоняй.
+        2. Если Volume Ratio < 0.8, нет интереса покупателей. Будь осторожен.
+        3. Идеальный вход: ADX > 25, Volume > 1.2, Тренд совпадает.
         
-        Формат ответа (строго текст):
-        Risk: [Число]/10
-        Verdict: [Текст вывода]
-        Reason: [1 предложение]
+        Верни ТОЛЬКО текст:
+        Risk: [1-10]/10
+        Verdict: [ENTER или WAIT]
+        Reason: [Кратко]
         """
-
-        # Попытка запроса с повторами (Retries)
         for i in range(3):
             try:
                 response = self.client.chat.completions.create(
@@ -141,97 +115,103 @@ class TradingAgent:
                 )
                 return response.choices[0].message.content
             except Exception as e:
-                error_str = str(e)
-                if "429" in error_str:
-                    wait_time = (i + 1) * 3
-                    print(f"⚠️ OpenAI Rate Limit (429). Waiting {wait_time}s...")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    return f"❌ AI Error: {e}"
-        
-        return "⚠️ AI Limit Reached (Skip)"
+                if "429" in str(e): time.sleep((i+1)*2); continue
+                return "AI Error"
+        return "Skip"
 
-    # ---------------------------------------------------
-    # 5. ОСНОВНОЙ ЦИКЛ
-    # ---------------------------------------------------
+    # 5. АНАЛИЗ
     def analyze(self):
-        print(f"--- 🔍 Analysis Loop {datetime.now().strftime('%H:%M:%S')} ---")
+        print(f"--- 🔍 Checking Market {datetime.now().strftime('%H:%M')} ---")
         
         for name, symbol in SYMBOLS.items():
-            # Получаем данные
+            time.sleep(0.1)
             df = self.get_data(symbol)
             if df is None: continue
 
-            # Индикаторы
-            df["ema_fast"] = ta.ema(df["c"], length=21)
-            df["ema_slow"] = ta.ema(df["c"], length=50)
+            # --- ИНДИКАТОРЫ ---
+            # 1. EMA
+            df["ema_fast"] = ta.ema(df["c"], length=9)  # Ускорил (было 21)
+            df["ema_slow"] = ta.ema(df["c"], length=21) # Ускорил (было 50)
+            
+            # 2. RSI
             df["rsi"] = ta.rsi(df["c"], length=14)
+            
+            # 3. ATR (для стопов)
             df["atr"] = ta.atr(df["h"], df["l"], df["c"], length=14)
+            
+            # 4. ADX (Сила тренда) 🔥
+            adx_df = ta.adx(df["h"], df["l"], df["c"], length=14)
+            df["adx"] = adx_df["ADX_14"]
+            
+            # 5. Volume SMA (Средний объем) 🔥
+            df["vol_sma"] = ta.sma(df["v"], length=20)
 
-            curr = df.iloc[-2] # Закрытая свеча
+            # Берем данные закрытой свечи
+            curr = df.iloc[-2]
             price = curr["c"]
             atr = curr["atr"]
+            adx = curr["adx"]
+            vol_ratio = curr["v"] / curr["vol_sma"] if curr["vol_sma"] > 0 else 0
 
-            # Логика 15m
+            # --- ЛОГИКА СИГНАЛОВ (ЖЕСТКИЙ ФИЛЬТР) ---
             signal = None
-            if curr["ema_fast"] > curr["ema_slow"] and curr["rsi"] < 70:
+            
+            # Условия для BUY:
+            # 1. EMA Fast > Slow
+            # 2. RSI между 50 и 70 (есть импульс, но не пик)
+            # 3. ADX > 20 (рынок не спит)
+            if (curr["ema_fast"] > curr["ema_slow"] and 
+                50 < curr["rsi"] < 70 and 
+                adx > 20):
                 signal = "BUY"
-            elif curr["ema_fast"] < curr["ema_slow"] and curr["rsi"] > 30:
+
+            # Условия для SELL:
+            elif (curr["ema_fast"] < curr["ema_slow"] and 
+                  30 < curr["rsi"] < 50 and 
+                  adx > 20):
                 signal = "SELL"
 
-            if signal is None:
-                continue
-
-            # Если сигнал новый
-            if self.positions[name] != signal:
+            if signal and self.positions[name] != signal:
                 
-                # 1. Сначала проверяем тренд 4H
+                # Фильтр 1: Глобальный тренд
                 global_trend = self.get_trend_4h(symbol)
-                
-                # Фильтр: Не торгуем против тренда
-                if signal == "BUY" and global_trend == "DOWN":
-                    print(f"🚫 FILTER: {name} BUY blocked by DOWN trend")
-                    continue
-                if signal == "SELL" and global_trend == "UP":
-                    print(f"🚫 FILTER: {name} SELL blocked by UP trend")
+                if signal == "BUY" and global_trend == "DOWN": continue
+                if signal == "SELL" and global_trend == "UP": continue
+
+                # Фильтр 2: Объем (Опционально, но полезно)
+                # Если объем сильно ниже среднего (< 0.5), сигнал слабый
+                if vol_ratio < 0.5: 
+                    print(f"📉 {name} Skip: Low Volume ({round(vol_ratio, 2)})")
                     continue
 
-                # 2. Спрашиваем AI (Только если прошли фильтр тренда)
-                trend_diff = abs(curr["ema_fast"] - curr["ema_slow"]) / curr["c"] * 100
+                # AI Анализ
+                ai_verdict = self.ask_ai(name, signal, price, round(curr["rsi"],1), round(adx,1), round(vol_ratio,2), global_trend)
                 
-                ai_verdict = self.ask_ai(
-                    symbol=name, 
-                    side=signal, 
-                    price=price, 
-                    rsi=round(curr["rsi"], 1), 
-                    atr=round(atr, 4), 
-                    trend_strength=round(trend_diff, 3), 
-                    global_trend=global_trend # <--- Передаем тренд в AI
-                )
+                # Если AI сказал "WAIT" или Риск высокий — не шлем (можно раскомментить)
+                # if "WAIT" in ai_verdict: continue 
 
-                # 3. Расчет Стопов
+                # Стопы
+                sl_factor = 2.0
+                tp_factor = 3.5 # Попробовать взять движение побольше
+                
                 if signal == "BUY":
-                    sl = price - (atr * 2)
-                    tp = price + (atr * 3)
+                    sl = price - (atr * sl_factor)
+                    tp = price + (atr * tp_factor)
                 else:
-                    sl = price + (atr * 2)
-                    tp = price - (atr * 3)
+                    sl = price + (atr * sl_factor)
+                    tp = price - (atr * tp_factor)
 
-                # 4. Отправка
                 msg = (
-                    f"🤖 **AI HEDGE SIGNAL**\n"
+                    f"🔥 **PREMIUM SIGNAL**\n"
                     f"#{name} — {signal}\n"
+                    f"📊 ADX: {round(adx, 1)} (Trend Strength)\n"
+                    f"🔊 Vol Ratio: {round(vol_ratio, 2)}x\n"
                     f"🌍 4H Trend: {global_trend}\n\n"
                     f"💰 Entry: `{price}`\n"
                     f"🎯 TP: `{round(tp, 4)}`\n"
                     f"🛑 SL: `{round(sl, 4)}`\n"
-                    f"📊 RSI: {round(curr['rsi'], 1)} | ATR: {round(atr, 4)}\n\n"
-                    f"🧠 **AI Analysis:**\n{ai_verdict}"
+                    f"🤖 AI: {ai_verdict}"
                 )
-                
                 self.send(msg)
                 self.positions[name] = signal
-                
-                # Пауза
                 time.sleep(3)
