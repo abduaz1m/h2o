@@ -10,32 +10,31 @@ from openai import OpenAI
 OKX_URL = "https://www.okx.com/api/v5/market/candles"
 INTERVAL = "15m"
 
-# Список монет
-# Полный список (Сбалансированный портфель: Топ + L1 + Мемы + AI)
+# 🔥 УМНЫЙ СПИСОК МОНЕТ (ТИКЕР + ПЛЕЧО)
+# "id": тикер на бирже
+# "lev": рекомендуемое плечо (Risk Management)
 SYMBOLS = {
-    # 💎 Фундаментальные (Тяжеловесы)
-    "BTC": "BTC-USDT-SWAP",
-    "ETH": "ETH-USDT-SWAP",
-    "BNB": "BNB-USDT-SWAP",
-    "SOL": "SOL-USDT-SWAP",
+    # 🐢 Фундаментал (Низкий риск -> Плечо 10x)
+    "BTC":  {"id": "BTC-USDT-SWAP", "lev": 10},
+    "ETH":  {"id": "ETH-USDT-SWAP", "lev": 10},
+    "BNB":  {"id": "BNB-USDT-SWAP", "lev": 10},
     
-    # 🚀 Активные L1/L2 (Техничные движения)
-    "ARB": "ARB-USDT-SWAP",
-    "OP": "OP-USDT-SWAP",
-    "SUI": "SUI-USDT-SWAP",
-    "APT": "APT-USDT-SWAP",
-    "TIA": "TIA-USDT-SWAP",  # <-- Добавлено
-    "TON": "TON-USDT-SWAP",
+    # 🚗 Альткоины (Средний риск -> Плечо 5x-7x)
+    "SOL":  {"id": "SOL-USDT-SWAP", "lev": 7},
+    "XRP":  {"id": "XRP-USDT-SWAP", "lev": 7},
+    "LTC":  {"id": "LTC-USDT-SWAP", "lev": 7},
+    "TON":  {"id": "TON-USDT-SWAP", "lev": 5},
+    "ARB":  {"id": "ARB-USDT-SWAP", "lev": 5},
+    "OP":   {"id": "OP-USDT-SWAP",  "lev": 5},
+    "SUI":  {"id": "SUI-USDT-SWAP", "lev": 5},
+    "APT":  {"id": "APT-USDT-SWAP", "lev": 5},
+    "TIA":  {"id": "TIA-USDT-SWAP", "lev": 5},
     
-    # 🐶 Мемы (Высокая волатильность - "топливо" для бота)
-    "DOGE": "DOGE-USDT-SWAP", # <-- Добавлено
-    "PEPE": "PEPE-USDT-SWAP", # <-- Добавлено
-    "WIF": "WIF-USDT-SWAP",   # <-- Добавлено
-    
-    # 🤖 Трендовые сектора (AI / Старая школа)
-    "FET": "FET-USDT-SWAP",   # <-- Добавлено (AI Сектор)
-    "XRP": "XRP-USDT-SWAP",   # <-- Добавлено
-    "LTC": "LTC-USDT-SWAP",
+    # 🚀 Мемы и AI (Высочайший риск -> Плечо 3x)
+    "DOGE": {"id": "DOGE-USDT-SWAP", "lev": 5}, # Доги чуть стабильнее
+    "PEPE": {"id": "PEPE-USDT-SWAP", "lev": 3},
+    "WIF":  {"id": "WIF-USDT-SWAP",  "lev": 3},
+    "FET":  {"id": "FET-USDT-SWAP",  "lev": 3},
 }
 
 class TradingAgent:
@@ -43,7 +42,8 @@ class TradingAgent:
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.client = OpenAI(api_key=openai_key)
-        self.positions = {symbol: None for symbol in SYMBOLS}
+        # Память позиций
+        self.positions = {name: None for name in SYMBOLS}
 
     # 1. ОТПРАВКА
     def send(self, text):
@@ -52,7 +52,7 @@ class TradingAgent:
             requests.post(url, json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
         except: pass
 
-    # 2. ДАННЫЕ
+    # 2. ПОЛУЧЕНИЕ ДАННЫХ
     def get_data(self, symbol):
         try:
             r = requests.get(OKX_URL, params={"instId": symbol, "bar": INTERVAL, "limit": 100}, timeout=10)
@@ -66,7 +66,7 @@ class TradingAgent:
             return df
         except: return None
 
-    # 3. ГЛОБАЛЬНЫЙ ТРЕНД
+    # 3. ГЛОБАЛЬНЫЙ ТРЕНД (4H)
     def get_trend_4h(self, symbol):
         try:
             r = requests.get(OKX_URL, params={"instId": symbol, "bar": "4H", "limit": 100}, timeout=10)
@@ -82,28 +82,25 @@ class TradingAgent:
             return "NEUTRAL"
         except: return "NEUTRAL"
 
-    # 4. AI АНАЛИЗ (С учетом ADX и Объема)
-    def ask_ai(self, symbol, side, price, rsi, adx, vol_ratio, global_trend):
+    # 4. AI АНАЛИЗ
+    def ask_ai(self, symbol, side, leverage, price, rsi, adx, vol_ratio, global_trend):
         print(f"🧠 AI analyzing {symbol}...")
         prompt = f"""
-        Ты Аналитик. Фильтруй сигналы.
+        Ты Риск-менеджер.
         
         ДАННЫЕ:
-        - Тикер: {symbol}
+        - Тикер: {symbol} (Реком. плечо: {leverage}x)
         - Сигнал: {side}
         - Тренд 4H: {global_trend}
-        - ADX (Сила тренда): {adx} (Если < 25, рынок слабый/флэт)
-        - Volume Ratio: {vol_ratio} (Если > 1.0, объем выше среднего)
+        - ADX (Сила): {adx} (>25 = Тренд)
+        - Volume Ratio: {vol_ratio}
         - RSI: {rsi}
         
-        ТВОЯ СТРАТЕГИЯ:
-        1. Если ADX < 20, это "шум". Отклоняй.
-        2. Если Volume Ratio < 0.8, нет интереса покупателей. Будь осторожен.
-        3. Идеальный вход: ADX > 25, Volume > 1.2, Тренд совпадает.
-        
+        ЗАДАЧА:
+        Оцени риск сделки (1-10). Если ADX < 20, рекомендуй пропустить.
         Верни ТОЛЬКО текст:
         Risk: [1-10]/10
-        Verdict: [ENTER или WAIT]
+        Verdict: [ENTER / SKIP]
         Reason: [Кратко]
         """
         for i in range(3):
@@ -121,91 +118,76 @@ class TradingAgent:
 
     # 5. АНАЛИЗ
     def analyze(self):
-        print(f"--- 🔍 Checking Market {datetime.now().strftime('%H:%M')} ---")
+        print(f"--- 🔍 Smart Analysis {datetime.now().strftime('%H:%M')} ---")
         
-        for name, symbol in SYMBOLS.items():
-            time.sleep(0.1)
+        # ⚠️ ИЗМЕНЕНИЕ: Распаковываем словарь с настройками
+        for name, info in SYMBOLS.items():
+            symbol = info["id"]
+            leverage = info["lev"]
+            
+            time.sleep(0.1) # Анти-спам биржи
             df = self.get_data(symbol)
             if df is None: continue
 
             # --- ИНДИКАТОРЫ ---
-            # 1. EMA
-            df["ema_fast"] = ta.ema(df["c"], length=9)  # Ускорил (было 21)
-            df["ema_slow"] = ta.ema(df["c"], length=21) # Ускорил (было 50)
-            
-            # 2. RSI
+            df["ema_fast"] = ta.ema(df["c"], length=9)
+            df["ema_slow"] = ta.ema(df["c"], length=21)
             df["rsi"] = ta.rsi(df["c"], length=14)
-            
-            # 3. ATR (для стопов)
             df["atr"] = ta.atr(df["h"], df["l"], df["c"], length=14)
-            
-            # 4. ADX (Сила тренда) 🔥
             adx_df = ta.adx(df["h"], df["l"], df["c"], length=14)
             df["adx"] = adx_df["ADX_14"]
-            
-            # 5. Volume SMA (Средний объем) 🔥
             df["vol_sma"] = ta.sma(df["v"], length=20)
 
-            # Берем данные закрытой свечи
+            # Текущие значения
             curr = df.iloc[-2]
             price = curr["c"]
             atr = curr["atr"]
             adx = curr["adx"]
             vol_ratio = curr["v"] / curr["vol_sma"] if curr["vol_sma"] > 0 else 0
 
-            # --- ЛОГИКА СИГНАЛОВ (ЖЕСТКИЙ ФИЛЬТР) ---
+            # --- ЛОГИКА ---
             signal = None
             
-            # Условия для BUY:
-            # 1. EMA Fast > Slow
-            # 2. RSI между 50 и 70 (есть импульс, но не пик)
-            # 3. ADX > 20 (рынок не спит)
-            if (curr["ema_fast"] > curr["ema_slow"] and 
-                50 < curr["rsi"] < 70 and 
-                adx > 20):
+            # Условия (Ужесточенные)
+            # RSI 50-70 для BUY, 30-50 для SELL
+            # ADX > 20 (фильтр флэта)
+            if (curr["ema_fast"] > curr["ema_slow"] and 50 < curr["rsi"] < 70 and adx > 20):
                 signal = "BUY"
-
-            # Условия для SELL:
-            elif (curr["ema_fast"] < curr["ema_slow"] and 
-                  30 < curr["rsi"] < 50 and 
-                  adx > 20):
+            elif (curr["ema_fast"] < curr["ema_slow"] and 30 < curr["rsi"] < 50 and adx > 20):
                 signal = "SELL"
 
             if signal and self.positions[name] != signal:
                 
-                # Фильтр 1: Глобальный тренд
+                # Фильтр Глобального тренда
                 global_trend = self.get_trend_4h(symbol)
                 if signal == "BUY" and global_trend == "DOWN": continue
                 if signal == "SELL" and global_trend == "UP": continue
 
-                # Фильтр 2: Объем (Опционально, но полезно)
-                # Если объем сильно ниже среднего (< 0.5), сигнал слабый
-                if vol_ratio < 0.5: 
-                    print(f"📉 {name} Skip: Low Volume ({round(vol_ratio, 2)})")
-                    continue
+                # Фильтр Объема
+                if vol_ratio < 0.6: continue
 
-                # AI Анализ
-                ai_verdict = self.ask_ai(name, signal, price, round(curr["rsi"],1), round(adx,1), round(vol_ratio,2), global_trend)
+                # AI Проверка
+                ai_verdict = self.ask_ai(name, signal, leverage, price, round(curr["rsi"],1), round(adx,1), round(vol_ratio,2), global_trend)
                 
-                # Если AI сказал "WAIT" или Риск высокий — не шлем (можно раскомментить)
-                # if "WAIT" in ai_verdict: continue 
-
-                # Стопы
-                sl_factor = 2.0
-                tp_factor = 3.5 # Попробовать взять движение побольше
+                # Динамические стопы на основе волатильности и плеча
+                # Чем выше плечо, тем короче должен быть стоп в % движения цены, 
+                # но ATR учитывает волатильность монеты.
+                # Для мемов (3x) стоп будет широким (2 ATR), для BTC (10x) тоже 2 ATR.
+                sl_dist = atr * 2
+                tp_dist = atr * 3.5
                 
                 if signal == "BUY":
-                    sl = price - (atr * sl_factor)
-                    tp = price + (atr * tp_factor)
+                    sl = price - sl_dist
+                    tp = price + tp_dist
                 else:
-                    sl = price + (atr * sl_factor)
-                    tp = price - (atr * tp_factor)
+                    sl = price + sl_dist
+                    tp = price - tp_dist
 
                 msg = (
-                    f"🔥 **PREMIUM SIGNAL**\n"
+                    f"🔥 **SMART SIGNAL**\n"
                     f"#{name} — {signal}\n"
-                    f"📊 ADX: {round(adx, 1)} (Trend Strength)\n"
-                    f"🔊 Vol Ratio: {round(vol_ratio, 2)}x\n"
+                    f"⚙️ **Lev: {leverage}x** (Risk Adjusted)\n"
+                    f"📊 ADX: {round(adx, 1)} | Vol: {round(vol_ratio, 2)}x\n"
                     f"🌍 4H Trend: {global_trend}\n\n"
                     f"💰 Entry: `{price}`\n"
                     f"🎯 TP: `{round(tp, 4)}`\n"
