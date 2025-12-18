@@ -8,52 +8,44 @@ from openai import OpenAI
 
 # --- КОНФИГУРАЦИЯ ---
 OKX_URL = "https://www.okx.com/api/v5/market/candles"
-MAX_POSITIONS = 23  # ⛔ Максимум 5 активных сделок на фьючерсах одновременно
+MAX_POSITIONS = 23
 
-# 1. 🚜 СПИСОК ФЬЮЧЕРСОВ (Разбиты по секторам для диверсификации)
+# 1. 🚜 СПИСОК ФЬЮЧЕРСОВ (Разбиты по секторам)
 FUTURES_SYMBOLS = {
-    # --- 👑 KINGS (Low Risk, Lev 10x) ---
+    # 👑 KINGS (Lev 10x)
     "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 10},
     "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 10},
     "SOL":    {"id": "SOL-USDT-SWAP",    "lev": 10},
     "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 10},
 
-    # --- 🏗 L1 BLOCKCHAINS (Med Risk, Lev 7x) ---
+    # 🏗 L1 (Lev 7x)
     "TON":    {"id": "TON-USDT-SWAP",    "lev": 7},
-    "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 7}, # Avalanche
-    "ADA":    {"id": "ADA-USDT-SWAP",    "lev": 7}, # Cardano
-    "NEAR":   {"id": "NEAR-USDT-SWAP",   "lev": 7},
+    "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 7},
     "SUI":    {"id": "SUI-USDT-SWAP",    "lev": 7},
     "APT":    {"id": "APT-USDT-SWAP",    "lev": 7},
-    "DOT":    {"id": "DOT-USDT-SWAP",    "lev": 7}, # Polkadot
 
-    # --- 🔗 DEFI & INFRA (Med Risk, Lev 7x) ---
-    "LINK":   {"id": "LINK-USDT-SWAP",   "lev": 7}, # Oracle
-    "UNI":    {"id": "UNI-USDT-SWAP",    "lev": 7},
+    # 🔗 DEFI (Lev 7x)
+    "LINK":   {"id": "LINK-USDT-SWAP",   "lev": 7},
     "ARB":    {"id": "ARB-USDT-SWAP",    "lev": 7},
     "OP":     {"id": "OP-USDT-SWAP",     "lev": 7},
     "TIA":    {"id": "TIA-USDT-SWAP",    "lev": 7},
 
-    # --- 🤖 AI & RWA (Trend Risk, Lev 5x) ---
-    "FET":    {"id": "FET-USDT-SWAP",    "lev": 5}, # AI Leader
-    "RENDER": {"id": "RENDER-USDT-SWAP", "lev": 5}, # AI GPU
-    "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 5}, # Worldcoin (Volatile)
-    "ONDO":   {"id": "ONDO-USDT-SWAP",   "lev": 5}, # RWA Leader
-
-    # --- 🚀 TOP MEMES (High Risk, Lev 3x-5x) ---
-    "DOGE":   {"id": "DOGE-USDT-SWAP",   "lev": 5}, # King Meme
-    "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3}, # Осторожно!
-    "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3}, # Solana Meme
+    # 🤖 AI & MEME (Lev 3x-5x)
+    "FET":    {"id": "FET-USDT-SWAP",    "lev": 5},
+    "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 5},
+    "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3},
+    "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3},
+    "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
 }
 
-# 2. 🏦 СПИСОК СПОТА (Инвестиции в фундамент)
+# 2. 🏦 СПИСОК СПОТА
 SPOT_SYMBOLS = {
     "BTC": "BTC-USDT",
     "ETH": "ETH-USDT",
     "SOL": "SOL-USDT",
-    "SUI": "SUI-USDT",
-    "ASTR": "ASTR-USDT", # Astar
     "TON": "TON-USDT",
+    "SUI": "SUI-USDT",
+    "BNB": "BNB-USDT",
 }
 
 class TradingAgent:
@@ -61,22 +53,18 @@ class TradingAgent:
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.client = OpenAI(api_key=openai_key)
-        
-        # Память сигналов
         self.positions = {name: None for name in FUTURES_SYMBOLS}
         self.spot_positions = {name: None for name in SPOT_SYMBOLS}
-        
-        # Счетчик активных сделок (упрощенная модель)
-        self.active_trade_count = 0
 
-    # --- ОТПРАВКА ---
     def send(self, text):
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         try:
-            requests.post(url, json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
+            requests.post(
+                f"https://api.telegram.org/bot{self.bot_token}/sendMessage", 
+                json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, 
+                timeout=5
+            )
         except: pass
 
-    # --- ПОЛУЧЕНИЕ СВЕЧЕЙ ---
     def get_candles(self, symbol, bar, limit=100):
         try:
             r = requests.get(OKX_URL, params={"instId": symbol, "bar": bar, "limit": limit}, timeout=10)
@@ -88,65 +76,91 @@ class TradingAgent:
             return df
         except: return None
 
-    # --- AI АНАЛИЗАТОР ---
-    def ask_ai(self, mode, symbol, price, rsi, trend, extra_info=""):
-        print(f"🧠 AI analyzing {symbol} ({mode})...")
+    # 🔥 ДИНАМИЧЕСКИЙ AI МОЗГ
+    def ask_ai(self, mode, symbol, price, rsi, adx, trend, extra_info=""):
         
-        if mode == "FUTURES":
-            role = "Трейдер. Стратегия: ONLY LONG. Ищи сильный моментум."
-            task = "Оцени силу бычьего импульса."
+        # 1. ОПРЕДЕЛЕНИЕ СТРАТЕГИИ ПО СИЛЕ ТРЕНДА (ADX)
+        if mode == "SPOT":
+            strategy_name = "INVESTOR (Buy the Dip)"
+            system_prompt = "Ты Инвестор. Твоя цель — накопление фундаментальных активов на просадках. Ищи перепроданность."
         else:
-            role = "Инвестор. Стратегия: Buy the Dip."
-            task = "Оцени, достаточно ли актив дешев для покупки."
+            # Логика переключения для Фьючерсов
+            if adx < 25:
+                strategy_name = "🛡️ SNIPER (Conservative)"
+                system_prompt = """
+                Ты — Консервативный Риск-Менеджер (Strategy: SNIPER).
+                Рынок слабый (ADX < 25). Твоя задача — отсеять шум.
+                ПРАВИЛА:
+                1. Если RSI > 65, ЗАПРЕТИ сделку (слишком рискованно во флэте).
+                2. Требуй идеального подтверждения. Любое сомнение = WAIT.
+                """
+            elif adx > 40:
+                strategy_name = "🚀 MOMENTUM (Aggressive)"
+                system_prompt = """
+                Ты — Агрессивный Трейдер (Strategy: MOMENTUM).
+                Рынок очень сильный (ADX > 40). Игнорируй перекупленность!
+                ПРАВИЛА:
+                1. Если RSI высокий (даже 75), это нормально для пампа. РАЗРЕШАЙ сделку.
+                2. Главное — не упустить ракету.
+                """
+            else:
+                strategy_name = "⚖️ SMART MONEY (Balanced)"
+                system_prompt = """
+                Ты — Аналитик VSA (Strategy: SMART MONEY).
+                Рынок в норме. Следи за объемами.
+                ПРАВИЛА:
+                1. Если цена растет без объема — это ловушка.
+                2. Ищи баланс между риском и прибылью.
+                """
 
-        prompt = f"""
-        Роль: {role}
-        Актив: {symbol}
-        Цена: {price}
+        print(f"🧠 AI analyzing {symbol} using {strategy_name}...")
+
+        user_prompt = f"""
+        АКТИВ: {symbol}
+        ЦЕНА: {price}
         RSI: {rsi}
-        Тренд: {trend}
-        Инфо: {extra_info}
+        ADX: {adx}
+        ТРЕНД: {trend}
+        ИНФО: {extra_info}
         
-        Ответ JSON текст:
+        Верни JSON:
         Risk: [1-10]/10
         Verdict: [BUY / WAIT]
         Reason: [Макс 10 слов]
         """
-        for i in range(2): # Уменьшил попытки до 2 для скорости
+
+        for i in range(2):
             try:
                 response = self.client.chat.completions.create(
                     model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
                     max_tokens=100
                 )
-                return response.choices[0].message.content
+                # Возвращаем вердикт + имя стратегии для логов
+                return response.choices[0].message.content, strategy_name
             except Exception as e:
                 if "429" in str(e): time.sleep(2); continue
-                return "AI Error"
-        return "Skip"
+                return "AI Error", strategy_name
+        return "Skip", strategy_name
 
-    # ==========================================
-    # 🚀 ЛОГИКА 1: ФЬЮЧЕРСЫ (15m)
-    # ==========================================
+    # --- ФЬЮЧЕРСЫ (15m) ---
     def check_futures(self):
-        print(f"--- 🚀 Checking {len(FUTURES_SYMBOLS)} Futures ---")
+        print(f"--- 🚀 Checking Futures ---")
+        cycle_signals = 0
         
-        # Сброс счетчика (в реальном боте нужно проверять баланс биржи, тут эмуляция)
-        # Мы просто не даем спамить сигналами в один цикл
-        cycle_signals = 0 
-
         for name, info in FUTURES_SYMBOLS.items():
-            if cycle_signals >= 3: # Не более 3 сигналов за один проход цикла
-                break
-
+            if cycle_signals >= 3: break
+            
             symbol = info["id"]
             lev = info["lev"]
-            time.sleep(0.15) # Чуть увеличили задержку (много монет)
+            time.sleep(0.15)
 
             df = self.get_candles(symbol, "15m")
             if df is None: continue
 
-            # Индикаторы
             df["ema_f"] = ta.ema(df["c"], length=9)
             df["ema_s"] = ta.ema(df["c"], length=21)
             df["rsi"] = ta.rsi(df["c"], length=14)
@@ -154,46 +168,47 @@ class TradingAgent:
             df["adx"] = ta.adx(df["h"], df["l"], df["c"], length=14)["ADX_14"]
             
             curr = df.iloc[-2]
+            adx_val = curr["adx"]
 
-            # LONG ONLY STRATEGY
+            # Базовый тех. сигнал (Cross)
+            # В "MOMENTUM" режиме мы допускаем более высокий RSI для входа
+            rsi_limit = 75 if adx_val > 40 else 70
+
             signal = None
-            # 1. Быстрое пересечение вверх
-            # 2. RSI в рабочей зоне (не перегрет)
-            # 3. ADX > 20 (есть тренд)
             if (curr["ema_f"] > curr["ema_s"] and 
-                50 < curr["rsi"] < 70 and 
-                curr["adx"] > 20):
+                50 < curr["rsi"] < rsi_limit and 
+                adx_val > 20):
                 signal = "BUY"
 
             if signal and self.positions[name] != signal:
                 
-                # Фильтр Дневки (1D)
+                # Фильтр 1D
                 d_df = self.get_candles(symbol, "1D", limit=50)
                 if d_df is not None:
                     ema20_d = ta.ema(d_df["c"], length=20).iloc[-1]
-                    if curr["c"] < ema20_d: continue # Цена ниже средней за месяц -> ТРЕНД НИСХОДЯЩИЙ -> SKIP
+                    if curr["c"] < ema20_d: continue 
 
-                # AI Check
-                ai_verdict = self.ask_ai("FUTURES", name, curr["c"], round(curr["rsi"],1), "UP (15m)", f"ADX: {round(curr['adx'],1)}")
+                # AI Check (Dynamic)
+                ai_verdict, strategy_used = self.ask_ai("FUTURES", name, curr["c"], round(curr["rsi"],1), round(adx_val,1), "UP (15m)")
+                
                 if "WAIT" in ai_verdict.upper(): continue
 
-                # TP/SL Setup
                 tp = curr["c"] + (curr["atr"] * 3.5)
                 sl = curr["c"] - (curr["atr"] * 2.0)
 
                 self.send(
-                    f"🚀 **LONG SIGNAL**\n#{name} — BUY 🟢\n⚙️ Lev: {lev}x\n"
+                    f"🚀 **LONG SIGNAL**\n#{name} — BUY 🟢\n"
+                    f"🧠 Strat: **{strategy_used}**\n"
+                    f"⚙️ Lev: {lev}x\n"
+                    f"📊 ADX: {round(adx_val,1)}\n"
                     f"💰 Entry: {curr['c']}\n🎯 TP: {round(tp,4)}\n🛑 SL: {round(sl,4)}\n"
-                    f"📊 ADX: {round(curr['adx'],1)}\n"
-                    f"🧠 AI: {ai_verdict}"
+                    f"🤖 AI: {ai_verdict}"
                 )
                 self.positions[name] = signal
                 cycle_signals += 1
                 time.sleep(2)
 
-    # ==========================================
-    # 🏦 ЛОГИКА 2: СПОТ (4H)
-    # ==========================================
+    # --- СПОТ (4H) ---
     def check_spot(self):
         print(f"--- 🏦 Checking Spot ---")
         for name, symbol in SPOT_SYMBOLS.items():
@@ -205,7 +220,6 @@ class TradingAgent:
             ema200 = ta.ema(df["c"], length=200).iloc[-1]
             price = df["c"].iloc[-1]
 
-            # Ловим просадки на растущем рынке
             is_dip = False
             setup = ""
 
@@ -217,13 +231,15 @@ class TradingAgent:
                 setup = "Oversold Bounce"
 
             if is_dip and self.spot_positions[name] != "BUY":
-                ai_verdict = self.ask_ai("SPOT", name, price, round(rsi,1), setup, "4H Timeframe")
+                # Для спота ADX не так важен, передаем 0
+                ai_verdict, strategy_used = self.ask_ai("SPOT", name, price, round(rsi,1), 0, setup)
                 
                 self.send(
                     f"💎 **SPOT INVEST**\n#{name} — ACCUMULATE 🔵\n"
-                    f"📉 RSI: {round(rsi, 1)}\n📊 Setup: {setup}\n"
+                    f"📉 RSI: {round(rsi, 1)}\n"
+                    f"🧠 Strat: {strategy_used}\n"
                     f"💰 Price: {price}\n"
-                    f"🧠 AI: {ai_verdict}"
+                    f"🤖 AI: {ai_verdict}"
                 )
                 self.spot_positions[name] = "BUY"
                 time.sleep(2)
@@ -231,7 +247,6 @@ class TradingAgent:
             elif rsi > 55:
                 self.spot_positions[name] = None
 
-    # MAIN LOOP
     def analyze(self):
         self.check_futures()
         self.check_spot()
