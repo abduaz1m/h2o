@@ -8,33 +8,52 @@ from openai import OpenAI
 
 # --- КОНФИГУРАЦИЯ ---
 OKX_URL = "https://www.okx.com/api/v5/market/candles"
-INTERVAL = "15m"
+MAX_POSITIONS = 23  # ⛔ Максимум 5 активных сделок на фьючерсах одновременно
 
-# 🔥 УМНЫЙ СПИСОК МОНЕТ (ТИКЕР + ПЛЕЧО)
-# "id": тикер на бирже
-# "lev": рекомендуемое плечо (Risk Management)
-SYMBOLS = {
-    # 🐢 Фундаментал (Низкий риск -> Плечо 10x)
-    "BTC":  {"id": "BTC-USDT-SWAP", "lev": 10},
-    "ETH":  {"id": "ETH-USDT-SWAP", "lev": 10},
-    "BNB":  {"id": "BNB-USDT-SWAP", "lev": 10},
-    
-    # 🚗 Альткоины (Средний риск -> Плечо 5x-7x)
-    "SOL":  {"id": "SOL-USDT-SWAP", "lev": 7},
-    "XRP":  {"id": "XRP-USDT-SWAP", "lev": 7},
-    "LTC":  {"id": "LTC-USDT-SWAP", "lev": 7},
-    "TON":  {"id": "TON-USDT-SWAP", "lev": 5},
-    "ARB":  {"id": "ARB-USDT-SWAP", "lev": 5},
-    "OP":   {"id": "OP-USDT-SWAP",  "lev": 5},
-    "SUI":  {"id": "SUI-USDT-SWAP", "lev": 5},
-    "APT":  {"id": "APT-USDT-SWAP", "lev": 5},
-    "TIA":  {"id": "TIA-USDT-SWAP", "lev": 5},
-    
-    # 🚀 Мемы и AI (Высочайший риск -> Плечо 3x)
-    "DOGE": {"id": "DOGE-USDT-SWAP", "lev": 5}, # Доги чуть стабильнее
-    "PEPE": {"id": "PEPE-USDT-SWAP", "lev": 3},
-    "WIF":  {"id": "WIF-USDT-SWAP",  "lev": 3},
-    "FET":  {"id": "FET-USDT-SWAP",  "lev": 3},
+# 1. 🚜 СПИСОК ФЬЮЧЕРСОВ (Разбиты по секторам для диверсификации)
+FUTURES_SYMBOLS = {
+    # --- 👑 KINGS (Low Risk, Lev 10x) ---
+    "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 10},
+    "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 10},
+    "SOL":    {"id": "SOL-USDT-SWAP",    "lev": 10},
+    "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 10},
+
+    # --- 🏗 L1 BLOCKCHAINS (Med Risk, Lev 7x) ---
+    "TON":    {"id": "TON-USDT-SWAP",    "lev": 7},
+    "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 7}, # Avalanche
+    "ADA":    {"id": "ADA-USDT-SWAP",    "lev": 7}, # Cardano
+    "NEAR":   {"id": "NEAR-USDT-SWAP",   "lev": 7},
+    "SUI":    {"id": "SUI-USDT-SWAP",    "lev": 7},
+    "APT":    {"id": "APT-USDT-SWAP",    "lev": 7},
+    "DOT":    {"id": "DOT-USDT-SWAP",    "lev": 7}, # Polkadot
+
+    # --- 🔗 DEFI & INFRA (Med Risk, Lev 7x) ---
+    "LINK":   {"id": "LINK-USDT-SWAP",   "lev": 7}, # Oracle
+    "UNI":    {"id": "UNI-USDT-SWAP",    "lev": 7},
+    "ARB":    {"id": "ARB-USDT-SWAP",    "lev": 7},
+    "OP":     {"id": "OP-USDT-SWAP",     "lev": 7},
+    "TIA":    {"id": "TIA-USDT-SWAP",    "lev": 7},
+
+    # --- 🤖 AI & RWA (Trend Risk, Lev 5x) ---
+    "FET":    {"id": "FET-USDT-SWAP",    "lev": 5}, # AI Leader
+    "RENDER": {"id": "RENDER-USDT-SWAP", "lev": 5}, # AI GPU
+    "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 5}, # Worldcoin (Volatile)
+    "ONDO":   {"id": "ONDO-USDT-SWAP",   "lev": 5}, # RWA Leader
+
+    # --- 🚀 TOP MEMES (High Risk, Lev 3x-5x) ---
+    "DOGE":   {"id": "DOGE-USDT-SWAP",   "lev": 5}, # King Meme
+    "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3}, # Осторожно!
+    "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3}, # Solana Meme
+}
+
+# 2. 🏦 СПИСОК СПОТА (Инвестиции в фундамент)
+SPOT_SYMBOLS = {
+    "BTC": "BTC-USDT",
+    "ETH": "ETH-USDT",
+    "SOL": "SOL-USDT",
+    "SUI": "SUI-USDT",
+    "ASTR": "ASTR-USDT", # Astar
+    "TON": "TON-USDT",
 }
 
 class TradingAgent:
@@ -42,161 +61,177 @@ class TradingAgent:
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.client = OpenAI(api_key=openai_key)
-        # Память позиций
-        self.positions = {name: None for name in SYMBOLS}
+        
+        # Память сигналов
+        self.positions = {name: None for name in FUTURES_SYMBOLS}
+        self.spot_positions = {name: None for name in SPOT_SYMBOLS}
+        
+        # Счетчик активных сделок (упрощенная модель)
+        self.active_trade_count = 0
 
-    # 1. ОТПРАВКА
+    # --- ОТПРАВКА ---
     def send(self, text):
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         try:
             requests.post(url, json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
         except: pass
 
-    # 2. ПОЛУЧЕНИЕ ДАННЫХ
-    def get_data(self, symbol):
+    # --- ПОЛУЧЕНИЕ СВЕЧЕЙ ---
+    def get_candles(self, symbol, bar, limit=100):
         try:
-            r = requests.get(OKX_URL, params={"instId": symbol, "bar": INTERVAL, "limit": 100}, timeout=10)
-            if r.status_code != 200: return None
+            r = requests.get(OKX_URL, params={"instId": symbol, "bar": bar, "limit": limit}, timeout=10)
             data = r.json().get("data", [])
             if not data: return None
-            
             df = pd.DataFrame(data, columns=["ts", "o", "h", "l", "c", "v", "volCcy", "volCcyQuote", "confirm"])
             df = df.iloc[::-1].reset_index(drop=True)
             df[["o", "h", "l", "c", "v"]] = df[["o", "h", "l", "c", "v"]].astype(float)
             return df
         except: return None
 
-    # 3. ГЛОБАЛЬНЫЙ ТРЕНД (4H)
-    def get_trend_4h(self, symbol):
-        try:
-            r = requests.get(OKX_URL, params={"instId": symbol, "bar": "4H", "limit": 100}, timeout=10)
-            data = r.json().get("data", [])
-            if not data: return "NEUTRAL"
-            df = pd.DataFrame(data, columns=["ts", "o", "h", "l", "c", "v", "volCcy", "volCcyQuote", "confirm"])
-            df = df.iloc[::-1].reset_index(drop=True)
-            df["c"] = df["c"].astype(float)
-            ema50 = ta.ema(df["c"], length=50).iloc[-1]
-            ema200 = ta.ema(df["c"], length=200).iloc[-1]
-            if ema50 > ema200: return "UP"
-            if ema50 < ema200: return "DOWN"
-            return "NEUTRAL"
-        except: return "NEUTRAL"
+    # --- AI АНАЛИЗАТОР ---
+    def ask_ai(self, mode, symbol, price, rsi, trend, extra_info=""):
+        print(f"🧠 AI analyzing {symbol} ({mode})...")
+        
+        if mode == "FUTURES":
+            role = "Трейдер. Стратегия: ONLY LONG. Ищи сильный моментум."
+            task = "Оцени силу бычьего импульса."
+        else:
+            role = "Инвестор. Стратегия: Buy the Dip."
+            task = "Оцени, достаточно ли актив дешев для покупки."
 
-    # 4. AI АНАЛИЗ
-    def ask_ai(self, symbol, side, leverage, price, rsi, adx, vol_ratio, global_trend):
-        print(f"🧠 AI analyzing {symbol}...")
         prompt = f"""
-        Ты Аналитик. Фильтруй сигналы.
+        Роль: {role}
+        Актив: {symbol}
+        Цена: {price}
+        RSI: {rsi}
+        Тренд: {trend}
+        Инфо: {extra_info}
         
-        ДАННЫЕ:
-        - Тикер: {symbol}
-        - Сигнал: {side}
-        - Тренд 4H: {global_trend}
-        - ADX (Сила тренда): {adx} (Если < 25, рынок слабый/флэт)
-        - Volume Ratio: {vol_ratio} (Если > 1.0, объем выше среднего)
-        - RSI: {rsi}
-        
-        ТВОЯ СТРАТЕГИЯ:
-        1. Если ADX < 20, это "шум". Отклоняй.
-        2. Если Volume Ratio < 0.8, нет интереса покупателей. Будь осторожен.
-        3. Идеальный вход: ADX > 25, Volume > 1.2, Тренд совпадает.
-        
-        Верни ТОЛЬКО текст:
+        Ответ JSON текст:
         Risk: [1-10]/10
-        Verdict: [ENTER или WAIT]
-        Reason: [Кратко]
+        Verdict: [BUY / WAIT]
+        Reason: [Макс 10 слов]
         """
-        for i in range(3):
+        for i in range(2): # Уменьшил попытки до 2 для скорости
             try:
                 response = self.client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=150
+                    max_tokens=100
                 )
                 return response.choices[0].message.content
             except Exception as e:
-                if "429" in str(e): time.sleep((i+1)*2); continue
+                if "429" in str(e): time.sleep(2); continue
                 return "AI Error"
         return "Skip"
 
-    # 5. АНАЛИЗ
-    def analyze(self):
-        print(f"--- 🔍 Smart Analysis {datetime.now().strftime('%H:%M')} ---")
+    # ==========================================
+    # 🚀 ЛОГИКА 1: ФЬЮЧЕРСЫ (15m)
+    # ==========================================
+    def check_futures(self):
+        print(f"--- 🚀 Checking {len(FUTURES_SYMBOLS)} Futures ---")
         
-        # ⚠️ ИЗМЕНЕНИЕ: Распаковываем словарь с настройками
-        for name, info in SYMBOLS.items():
+        # Сброс счетчика (в реальном боте нужно проверять баланс биржи, тут эмуляция)
+        # Мы просто не даем спамить сигналами в один цикл
+        cycle_signals = 0 
+
+        for name, info in FUTURES_SYMBOLS.items():
+            if cycle_signals >= 3: # Не более 3 сигналов за один проход цикла
+                break
+
             symbol = info["id"]
-            leverage = info["lev"]
-            
-            time.sleep(0.1) # Анти-спам биржи
-            df = self.get_data(symbol)
+            lev = info["lev"]
+            time.sleep(0.15) # Чуть увеличили задержку (много монет)
+
+            df = self.get_candles(symbol, "15m")
             if df is None: continue
 
-            # --- ИНДИКАТОРЫ ---
-            df["ema_fast"] = ta.ema(df["c"], length=9)
-            df["ema_slow"] = ta.ema(df["c"], length=21)
+            # Индикаторы
+            df["ema_f"] = ta.ema(df["c"], length=9)
+            df["ema_s"] = ta.ema(df["c"], length=21)
             df["rsi"] = ta.rsi(df["c"], length=14)
             df["atr"] = ta.atr(df["h"], df["l"], df["c"], length=14)
-            adx_df = ta.adx(df["h"], df["l"], df["c"], length=14)
-            df["adx"] = adx_df["ADX_14"]
-            df["vol_sma"] = ta.sma(df["v"], length=20)
-
-            # Текущие значения
-            curr = df.iloc[-2]
-            price = curr["c"]
-            atr = curr["atr"]
-            adx = curr["adx"]
-            vol_ratio = curr["v"] / curr["vol_sma"] if curr["vol_sma"] > 0 else 0
-
-            # --- ЛОГИКА ---
-            signal = None
+            df["adx"] = ta.adx(df["h"], df["l"], df["c"], length=14)["ADX_14"]
             
-            # Условия (Ужесточенные)
-            # RSI 50-70 для BUY, 30-50 для SELL
-            # ADX > 20 (фильтр флэта)
-            if (curr["ema_fast"] > curr["ema_slow"] and 50 < curr["rsi"] < 70 and adx > 20):
+            curr = df.iloc[-2]
+
+            # LONG ONLY STRATEGY
+            signal = None
+            # 1. Быстрое пересечение вверх
+            # 2. RSI в рабочей зоне (не перегрет)
+            # 3. ADX > 20 (есть тренд)
+            if (curr["ema_f"] > curr["ema_s"] and 
+                50 < curr["rsi"] < 70 and 
+                curr["adx"] > 20):
                 signal = "BUY"
-            elif (curr["ema_fast"] < curr["ema_slow"] and 30 < curr["rsi"] < 50 and adx > 20):
-                signal = "SELL"
 
             if signal and self.positions[name] != signal:
                 
-                # Фильтр Глобального тренда
-                global_trend = self.get_trend_4h(symbol)
-                if signal == "BUY" and global_trend == "DOWN": continue
-                if signal == "SELL" and global_trend == "UP": continue
+                # Фильтр Дневки (1D)
+                d_df = self.get_candles(symbol, "1D", limit=50)
+                if d_df is not None:
+                    ema20_d = ta.ema(d_df["c"], length=20).iloc[-1]
+                    if curr["c"] < ema20_d: continue # Цена ниже средней за месяц -> ТРЕНД НИСХОДЯЩИЙ -> SKIP
 
-                # Фильтр Объема
-                if vol_ratio < 0.6: continue
+                # AI Check
+                ai_verdict = self.ask_ai("FUTURES", name, curr["c"], round(curr["rsi"],1), "UP (15m)", f"ADX: {round(curr['adx'],1)}")
+                if "WAIT" in ai_verdict.upper(): continue
 
-                # AI Проверка
-                ai_verdict = self.ask_ai(name, signal, leverage, price, round(curr["rsi"],1), round(adx,1), round(vol_ratio,2), global_trend)
-                
-                # Динамические стопы на основе волатильности и плеча
-                # Чем выше плечо, тем короче должен быть стоп в % движения цены, 
-                # но ATR учитывает волатильность монеты.
-                # Для мемов (3x) стоп будет широким (2 ATR), для BTC (10x) тоже 2 ATR.
-                sl_dist = atr * 2
-                tp_dist = atr * 3.5
-                
-                if signal == "BUY":
-                    sl = price - sl_dist
-                    tp = price + tp_dist
-                else:
-                    sl = price + sl_dist
-                    tp = price - tp_dist
+                # TP/SL Setup
+                tp = curr["c"] + (curr["atr"] * 3.5)
+                sl = curr["c"] - (curr["atr"] * 2.0)
 
-                msg = (
-                    f"🔥 **SMART SIGNAL**\n"
-                    f"#{name} — {signal}\n"
-                    f"⚙️ **Lev: {leverage}x** (Risk Adjusted)\n"
-                    f"📊 ADX: {round(adx, 1)} | Vol: {round(vol_ratio, 2)}x\n"
-                    f"🌍 4H Trend: {global_trend}\n\n"
-                    f"💰 Entry: `{price}`\n"
-                    f"🎯 TP: `{round(tp, 4)}`\n"
-                    f"🛑 SL: `{round(sl, 4)}`\n"
-                    f"🤖 AI: {ai_verdict}"
+                self.send(
+                    f"🚀 **LONG SIGNAL**\n#{name} — BUY 🟢\n⚙️ Lev: {lev}x\n"
+                    f"💰 Entry: {curr['c']}\n🎯 TP: {round(tp,4)}\n🛑 SL: {round(sl,4)}\n"
+                    f"📊 ADX: {round(curr['adx'],1)}\n"
+                    f"🧠 AI: {ai_verdict}"
                 )
-                self.send(msg)
                 self.positions[name] = signal
-                time.sleep(3)
+                cycle_signals += 1
+                time.sleep(2)
+
+    # ==========================================
+    # 🏦 ЛОГИКА 2: СПОТ (4H)
+    # ==========================================
+    def check_spot(self):
+        print(f"--- 🏦 Checking Spot ---")
+        for name, symbol in SPOT_SYMBOLS.items():
+            time.sleep(0.1)
+            df = self.get_candles(symbol, "4H", limit=200)
+            if df is None: continue
+
+            rsi = ta.rsi(df["c"], length=14).iloc[-1]
+            ema200 = ta.ema(df["c"], length=200).iloc[-1]
+            price = df["c"].iloc[-1]
+
+            # Ловим просадки на растущем рынке
+            is_dip = False
+            setup = ""
+
+            if price > ema200 and rsi < 40:
+                is_dip = True
+                setup = "Trend Pullback"
+            elif rsi < 30:
+                is_dip = True
+                setup = "Oversold Bounce"
+
+            if is_dip and self.spot_positions[name] != "BUY":
+                ai_verdict = self.ask_ai("SPOT", name, price, round(rsi,1), setup, "4H Timeframe")
+                
+                self.send(
+                    f"💎 **SPOT INVEST**\n#{name} — ACCUMULATE 🔵\n"
+                    f"📉 RSI: {round(rsi, 1)}\n📊 Setup: {setup}\n"
+                    f"💰 Price: {price}\n"
+                    f"🧠 AI: {ai_verdict}"
+                )
+                self.spot_positions[name] = "BUY"
+                time.sleep(2)
+            
+            elif rsi > 55:
+                self.spot_positions[name] = None
+
+    # MAIN LOOP
+    def analyze(self):
+        self.check_futures()
+        self.check_spot()
