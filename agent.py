@@ -17,6 +17,10 @@ FUTURES_SYMBOLS = {
     "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 10},
     "SOL":    {"id": "SOL-USDT-SWAP",    "lev": 10},
     "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 10},
+    "LTC":    {"id": "LTC-USDT-SWAP",    "lev": 10},
+    "XRP":    {"id": "XRP-USDT-SWAP",    "lev": 10},
+
+
 
     # 🏗 L1 (Lev 7x)
     "TON":    {"id": "TON-USDT-SWAP",    "lev": 7},
@@ -36,6 +40,7 @@ FUTURES_SYMBOLS = {
     "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3},
     "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3},
     "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
+    "STRK":   {"id": "STRK-USDT-SWAP",    "lev": 3},
 }
 
 # 2. 🏦 СПИСОК СПОТА
@@ -123,7 +128,7 @@ class TradingAgent:
         ТРЕНД: {trend}
         ИНФО: {extra_info}
         
-        Верни JSON:
+        Дай ответ в формате JSON:
         Risk: [1-10]/10
         Verdict: [BUY / WAIT]
         Reason: [Макс 10 слов]
