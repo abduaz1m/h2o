@@ -2,3 +2,4 @@ requests
 pandas
 pandas_ta
 openai
+ccxt
