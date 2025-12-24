@@ -70,43 +70,39 @@ class TradingAgent:
         except Exception:
             return None
 
-    # 🔥 АДАПТИРОВАННЫЙ МОЗГ (DeepSeek)
+    # 🔥 AI МОЗГ: ОПЫТНЫЙ ТРЕЙДЕР (БЕЗ ЛИШНЕЙ ДИНАМИКИ)
     def ask_ai(self, mode, symbol, price, rsi, adx, trend, extra_info=""):
         
-        # Выбор стратегии
-        if mode == "SPOT":
-            strategy_name = "INVESTOR_DIP"
-            rules_block = "GOAL: Accumulate on oversold. RSI < 30 = STRONG BUY. RSI > 50 = WAIT."
-        else:
-            if adx < 25:
-                strategy_name = "SNIPER_CONSERVATIVE"
-                rules_block = "MARKET: Weak Trend (ADX < 25). RSI > 65 = WAIT. Filter noise strictly."
-            elif adx > 40:
-                strategy_name = "MOMENTUM_AGGRESSIVE"
-                rules_block = "MARKET: Strong Trend (ADX > 40). Ignore Overbought. Follow momentum."
-            else:
-                strategy_name = "SMART_MONEY_BALANCED"
-                rules_block = "MARKET: Normal. Avoid buying resistance. Watch Volume."
+        # Единая стратегия для всех ситуаций
+        strategy_name = "CRYPTO_VETERAN"
 
-        print(f"🧠 Analyzing {symbol} [{strategy_name}]...")
+        print(f"🧠 Veteran Trader analyzing {symbol}...")
 
-        # Формируем промпт безопасным способом (без сложных f-строк)
+        # Простой и понятный шаблон JSON
         json_template = '{"Risk": int, "Verdict": "BUY" or "WAIT", "Reason": "text"}'
         
+        # ПРОМПТ ОПЫТНОГО ТРЕЙДЕРА
         system_prompt = (
-            f"### ROLE\nSenior Quantitative Analyst.\n"
-            f"### STRATEGY: {strategy_name}\n"
-            f"RULES: {rules_block}\n"
-            f"### OUTPUT\nReturn strict JSON ONLY: {json_template}"
+            f"Ты — опытный крипто-трейдер с 10-летним стажем. Ты видел взлеты и падения, пампы и дампы.\n"
+            f"Твой подход: Прагматичный Price Action + Технический анализ.\n"
+            f"Твоя цель: Защитить депозит и забрать только верную прибыль.\n\n"
+            f"ПРАВИЛА:\n"
+            f"1. Не верь хайпу. Верь цифрам (RSI, ADX, Trend).\n"
+            f"2. Если RSI перегрет (>70) и тренд слабый — это риск. Лучше пропустить (WAIT).\n"
+            f"3. Если есть четкий сигнал и подтверждение тренда — заходи (BUY).\n"
+            f"4. Твой ответ должен быть кратким и четким, как выстрел.\n\n"
+            f"ФОРМАТ ОТВЕТА (СТРОГО JSON): {json_template}"
         )
 
         user_prompt = (
-            f"Asset: {symbol}\n"
-            f"Price: {price}\n"
-            f"RSI: {rsi}\n"
-            f"ADX: {adx}\n"
-            f"Trend: {trend}\n"
-            f"Info: {extra_info}\n"
+            f"Анализ актива: {symbol}\n"
+            f"Режим: {mode}\n"
+            f"Цена: {price}\n"
+            f"RSI (14): {rsi}\n"
+            f"ADX (Сила тренда): {adx}\n"
+            f"Текущий тренд: {trend}\n"
+            f"Доп. инфо: {extra_info}\n\n"
+            f"Каков твой вердикт, коллега?"
         )
 
         for i in range(2):
@@ -118,11 +114,11 @@ class TradingAgent:
                         {"role": "user", "content": user_prompt}
                     ],
                     max_tokens=200,
-                    temperature=0.2
+                    temperature=0.3 # Чуть добавим свободы для "стиля", но не сильно
                 )
                 
                 content = response.choices[0].message.content
-                # Очистка от маркдауна
+                # Очистка
                 content = content.replace("```json", "").replace("```", "").strip()
                 return content, strategy_name
             except Exception as e:
@@ -156,9 +152,9 @@ class TradingAgent:
             adx_val = curr["adx"]
             rsi_val = curr["rsi"]
 
-            rsi_limit = 75 if adx_val > 40 else 70
+            # Расширяем лимиты RSI для опытного трейдера, он сам решит
+            rsi_limit = 78 if adx_val > 35 else 70
 
-            # Первичный сигнал
             signal = None
             if (curr["ema_f"] > curr["ema_s"] and 
                 50 < rsi_val < rsi_limit and 
@@ -167,13 +163,12 @@ class TradingAgent:
 
             if signal and self.positions[name] != signal:
                 
-                # Фильтр дневного тренда
                 d_df = self.get_candles(symbol, "1D", limit=50)
                 if d_df is not None:
                     ema20_d = ta.ema(d_df["c"], length=20).iloc[-1]
                     if curr["c"] < ema20_d: continue 
 
-                # AI Анализ
+                # Вызов AI
                 ai_verdict, strategy_used = self.ask_ai("FUTURES", name, curr["c"], round(rsi_val,1), round(adx_val,1), "UP (15m)")
                 
                 if "WAIT" in str(ai_verdict).upper(): continue
@@ -182,12 +177,12 @@ class TradingAgent:
                 sl = curr["c"] - (curr["atr"] * 2.0)
 
                 msg = (
-                    f"🚀 **LONG SIGNAL**\n#{name} — BUY 🟢\n"
-                    f"🧠 Strat: **{strategy_used}**\n"
+                    f"👨‍💻 **TRADER SIGNAL**\n#{name} — BUY 🟢\n"
+                    f"🧠 Analyst: **{strategy_used}**\n"
                     f"⚙️ Lev: {lev}x\n"
                     f"📊 ADX: {round(adx_val,1)}\n"
                     f"💰 Entry: {curr['c']}\n🎯 TP: {round(tp,4)}\n🛑 SL: {round(sl,4)}\n"
-                    f"🤖 AI: {ai_verdict}"
+                    f"💬 Verdict: {ai_verdict}"
                 )
                 self.send(msg)
                 self.positions[name] = signal
@@ -222,9 +217,9 @@ class TradingAgent:
                 msg = (
                     f"💎 **SPOT INVEST**\n#{name} — ACCUMULATE 🔵\n"
                     f"📉 RSI: {round(rsi, 1)}\n"
-                    f"🧠 Strat: {strategy_used}\n"
+                    f"🧠 Analyst: {strategy_used}\n"
                     f"💰 Price: {price}\n"
-                    f"🤖 AI: {ai_verdict}"
+                    f"💬 Verdict: {ai_verdict}"
                 )
                 self.send(msg)
                 self.spot_positions[name] = "BUY"
