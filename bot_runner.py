@@ -11,9 +11,8 @@ if not OPENAI_KEY:
     print("❌ ОШИБКА: Не задан OPENAI_API_KEY")
     exit()
 
-agent = TradingAgent(BOT_TOKEN, CHAT_ID, OPENAI_KEY)
-
-agent.send("🤖 AI Agent Activated with GPT-4o-mini logic.")
+agent = TradingAgent(BOT_TOKEN, CHAT_ID, DEEPSEEK_KEY)
+agent.send("🤖 Bot started with DeepSeek V3 engine")
 
 while True:
     try:
