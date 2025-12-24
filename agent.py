@@ -5,11 +5,9 @@ import pandas_ta as ta
 from datetime import datetime
 from openai import OpenAI
 
-# --- 🔐 НАСТРОЙКИ API OKX ---
-# Впишите сюда ваши ключи от биржи
-API_KEY = "ВАШ_OKX_API_KEY"
-API_SECRET = "ВАШ_OKX_SECRET_KEY"
-API_PASSWORD = "ВАШ_OKX_PASSPHRASE"
+API_KEY = "7eec2af7-e9ff-4e1a-acae-80802ec56cc9"
+API_SECRET = "D4C603AD3E5A91A37F81C4ED3B5D6B85"
+API_PASSWORD = "Abduxalilov022"
 
 # ⚙️ РЕЖИМ РАБОТЫ
 # True = Демо счет (деньги не тратятся)
