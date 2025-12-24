@@ -52,7 +52,7 @@ class TradingAgent:
     def __init__(self, bot_token, chat_id, openai_key):
         self.bot_token = bot_token
         self.chat_id = chat_id
-        # 🔥 ИЗМЕНЕНИЕ 1: Добавлен base_url для DeepSeek
+        # Подключение к DeepSeek (или OpenAI с совместимым endpoint)
         self.client = OpenAI(api_key=openai_key, base_url="https://api.deepseek.com")
         self.positions = {name: None for name in FUTURES_SYMBOLS}
         self.spot_positions = {name: None for name in SPOT_SYMBOLS}
@@ -77,75 +77,99 @@ class TradingAgent:
             return df
         except: return None
 
-    # 🔥 ДИНАМИЧЕСКИЙ AI МОЗГ
+    # 🔥 АДАПТИРОВАННЫЙ ПОД DEEPSEEK МОЗГ
     def ask_ai(self, mode, symbol, price, rsi, adx, trend, extra_info=""):
         
-        # 1. ОПРЕДЕЛЕНИЕ СТРАТЕГИИ ПО СИЛЕ ТРЕНДА (ADX)
+        # 1. СТРУКТУРИРОВАННАЯ ЛОГИКА (БЕЗ ЛИШНЕЙ "ПРОЗЫ")
         if mode == "SPOT":
-            strategy_name = "INVESTOR (Buy the Dip)"
-            system_prompt = "Ты Инвестор. Твоя цель — накопление фундаментальных активов на просадках. Ищи перепроданность."
+            strategy_name = "INVESTOR_DIP"
+            rules_block = """
+            - GOAL: Accumulate assets during oversold conditions.
+            - RSI < 30: STRONG BUY signal.
+            - RSI < 40 + Uptrend: MODERATE BUY.
+            - RSI > 50: WAIT (No signal).
+            """
         else:
+            # Futures Logic
             if adx < 25:
-                strategy_name = "🛡️ SNIPER (Conservative)"
-                system_prompt = """
-                Ты — Консервативный Риск-Менеджер (Strategy: SNIPER).
-                Рынок слабый (ADX < 25). Твоя задача — отсеять шум.
-                ПРАВИЛА:
-                1. Если RSI > 65, ЗАПРЕТИ сделку (слишком рискованно во флэте).
-                2. Требуй идеального подтверждения. Любое сомнение = WAIT.
+                strategy_name = "SNIPER_CONSERVATIVE"
+                rules_block = """
+                - MARKET STATE: Choppy / Weak Trend (ADX < 25).
+                - CONSTRAINT: FALSE SIGNALS HIGH.
+                - RULE 1: IF RSI > 65 THEN VERDICT = WAIT (Risk of reversal).
+                - RULE 2: STRICTLY FILTER NOISE. Confirm entry only if indicators align perfectly.
                 """
             elif adx > 40:
-                strategy_name = "🚀 MOMENTUM (Aggressive)"
-                system_prompt = """
-                Ты — Агрессивный Трейдер (Strategy: MOMENTUM).
-                Рынок очень сильный (ADX > 40). Игнорируй перекупленность!
-                ПРАВИЛА:
-                1. Если RSI высокий (даже 75), это нормально для пампа. РАЗРЕШАЙ сделку.
-                2. Главное — не упустить ракету.
+                strategy_name = "MOMENTUM_AGGRESSIVE"
+                rules_block = """
+                - MARKET STATE: Strong Trend / Pump (ADX > 40).
+                - CONSTRAINT: IGNORE OVERSOLD/OVERBOUGHT.
+                - RULE 1: High RSI (70-80) is ACCEPTABLE for continuation.
+                - RULE 2: DO NOT counter-trend. Follow the momentum.
                 """
             else:
-                strategy_name = "⚖️ SMART MONEY (Balanced)"
-                system_prompt = """
-                Ты — Аналитик VSA (Strategy: SMART MONEY).
-                Рынок в норме. Следи за объемами.
-                ПРАВИЛА:
-                1. Если цена растет без объема — это ловушка.
-                2. Ищи баланс между риском и прибылью.
+                strategy_name = "SMART_MONEY_BALANCED"
+                rules_block = """
+                - MARKET STATE: Normal Volatility.
+                - ANALYSIS: Check Volume Spread Analysis logic implicitly.
+                - RULE 1: Avoid buying into resistance.
+                - RULE 2: Balance Risk/Reward ratio.
                 """
 
-        print(f"🧠 AI analyzing {symbol} using {strategy_name}...")
+        print(f"🧠 DeepSeek analyzing {symbol} [{strategy_name}]...")
+
+        # 2. ПРОМПТ В СТИЛЕ "DATA ANALYST"
+        system_prompt = f"""### ROLE
+Senior Quantitative Analyst.
+
+### OBJECTIVE
+Analyze the provided market data and output a trading decision based on strict algorithmic rules.
+
+### STRATEGY PARAMETERS: {strategy_name}
+{rules_block}
+
+### OUTPUT FORMAT
+Provide the response in strict JSON format ONLY:
+{{
+  "Risk": int, // Risk level 1-10 (1=Safe, 10=Extreme Risk)
+  "Verdict": "BUY" or "WAIT",
+  "Reason": "Concise technical explanation (max 15 words)"
+}}
+"""
 
         user_prompt = f"""
-        АКТИВ: {symbol}
-        ЦЕНА: {price}
-        RSI: {rsi}
-        ADX: {adx}
-        ТРЕНД: {trend}
-        ИНФО: {extra_info}
-        
-        Верни JSON:
-        Risk: [1-10]/10
-        Verdict: [BUY / WAIT]
-        Reason: [Макс 10 слов]
+        ### MARKET DATA
+        Asset: {symbol}
+        Price: {price}
+        RSI (14): {rsi}
+        ADX (14): {adx}
+        Trend Context: {trend}
+        Additional Setup: {extra_info}
+
+        ### INSTRUCTION
+        Evaluate data against the Strategy Parameters. Return JSON.
         """
 
         for i in range(2):
             try:
                 response = self.client.chat.completions.create(
-                    # 🔥 ИЗМЕНЕНИЕ 2: Модель заменена на deepseek-chat
                     model="deepseek-chat",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=100
+                    max_tokens=200, # DeepSeek может быть чуть многословнее в рассуждениях, даем запас
+                    temperature=0.2 # Снижаем температуру для четкости
                 )
-                return response.choices[0].message.content, strategy_name
+                
+                content = response.choices[0].message.content
+                # Очистка от возможных markdown блоков ```json ... ```
+                content = content.replace("```json", "").replace("```", "").strip()
+                
+                return content, strategy_name
             except Exception as e:
-                # DeepSeek может иногда выдавать 500-е ошибки при перегрузке, обработка осталась
-                if "429" in str(e) or "500" in str(e) or "502" in str(e): 
+                if "429" in str(e) or "500" in str(e): 
                     time.sleep(2); continue
-                print(f"AI Error: {e}")
                 return "AI Error", strategy_name
         return "Skip", strategy_name
 
