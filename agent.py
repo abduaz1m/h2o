@@ -45,12 +45,7 @@ FUTURES_SYMBOLS = {
 }
 
 SPOT_SYMBOLS = [
-    "BTC": "BTC-USDT",
-    "ETH": "ETH-USDT",
-    "SOL": "SOL-USDT",
-    "TON": "TON-USDT",
-    "SUI": "SUI-USDT",
-    "BNB": "BNB-USDT",
+    "BTC/USDT", "ETH/USDT", "SOL/USDT", "TON/USDT"
 ]
 
 class TradingAgent:
