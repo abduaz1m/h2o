@@ -7,8 +7,8 @@ CHAT_ID = os.getenv("CHAT_ID")
 DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY") 
 
 # Проверка наличия ключей
-if not OPENAI_KEY:
-    print("❌ ОШИБКА: Не задан OPENAI_API_KEY")
+if not DEEPSEEK_KEY:
+    print("❌ ОШИБКА: Не задан DEEPSEEK_API_KEY")
     exit()
 
 agent = TradingAgent(BOT_TOKEN, CHAT_ID, DEEPSEEK_KEY)
