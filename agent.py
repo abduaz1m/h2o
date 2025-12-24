@@ -5,9 +5,9 @@ import pandas_ta as ta
 from datetime import datetime
 from openai import OpenAI
 
-API_KEY = "7eec2af7-e9ff-4e1a-acae-80802ec56cc9"
-API_SECRET = "D4C603AD3E5A91A37F81C4ED3B5D6B85"
-API_PASSWORD = "Abduxalilov022"
+API_KEY = "a1af4b19-b6c9-45d3-ae8f-e11247c6f222"
+API_SECRET = "9E00FB5D0EA222DD54488B768AD20580"
+API_PASSWORD = "Abduxalilov022$"
 
 # ⚙️ РЕЖИМ РАБОТЫ
 # True = Демо счет (деньги не тратятся)
