@@ -18,7 +18,7 @@ SANDBOX_MODE = False
 
 # Настройки
 MAX_POSITIONS = 10     # Максимум сделок
-ORDER_AMOUNT_USD = 100000 # Размер входа ($)
+ORDER_AMOUNT_USD = 100 # Размер входа ($)
 
 # 🚜 ФЬЮЧЕРСЫ (Торгуем Long и Short)
 FUTURES_SYMBOLS = {
