@@ -1,196 +1,252 @@
-# bot_runner.py
 import os
-import sys
-import signal
+import requests
 import time
+import pandas as pd
+import pandas_ta as ta
 from datetime import datetime
-from agent import TradingAgent
+from openai import OpenAI
 
-def signal_handler(sig, frame):
-    """Обработчик сигналов для корректного завершения"""
-    print(f'\n🛑 [{datetime.now().strftime("%H:%M:%S")}] Получен сигнал остановки')
-    sys.exit(0)
+# --- КОНФИГУРАЦИЯ ---
+OKX_URL = "https://www.okx.com/api/v5/market/candles"
+MAX_POSITIONS = 23
 
-def check_environment():
-    """Проверка переменных окружения"""
-    print("🔍 Проверка настроек...")
-    
-    required_vars = []
-    optional_vars = []
-    
-    # Обязательные для базовой работы (AI и Telegram опциональны)
-    if not os.getenv("OKX_API_KEY") and not os.getenv("OKX_API_SECRET") and not os.getenv("OKX_PASSWORD"):
-        print("⚠️  ВНИМАНИЕ: Ключи OKX не заданы")
-        print("   Будет использоваться публичный доступ к данным (лимитированный)")
-    
-    # Проверка Telegram
-    if not os.getenv("TELEGRAM_BOT_TOKEN") or not os.getenv("TELEGRAM_CHAT_ID"):
-        print("⚠️  ВНИМАНИЕ: Telegram уведомления отключены")
-        print("   Для получения сигналов задайте:")
-        print("   - TELEGRAM_BOT_TOKEN")
-        print("   - TELEGRAM_CHAT_ID")
-    else:
-        print("✅ Telegram настройки: OK")
-    
-    # Проверка DeepSeek
-    if not os.getenv("DEEPSEEK_API_KEY"):
-        print("⚠️  ВНИМАНИЕ: AI анализ отключен")
-        print("   Для AI анализа задайте DEEPSEEK_API_KEY")
-    else:
-        print("✅ DeepSeek AI: OK")
-    
-    return True
+# 1. 🚜 СПИСОК ФЬЮЧЕРСОВ (Разбиты по секторам)
+FUTURES_SYMBOLS = {
+    # 👑 KINGS (Lev 10x)
+    "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 10},
+    "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 10},
+    "SOL":    {"id": "SOL-USDT-SWAP",    "lev": 10},
+    "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 10},
 
-def send_telegram_startup(bot_token, chat_id):
-    """Отправка уведомления о запуске"""
-    if not bot_token or not chat_id:
-        return False
-    
-    try:
-        import requests
-        message = f"""
-🤖 *АНАЛИТИЧЕСКИЙ БОТ ЗАПУЩЕН*
+    # 🏗 L1 (Lev 7x)
+    "TON":    {"id": "TON-USDT-SWAP",    "lev": 7},
+    "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 7},
+    "SUI":    {"id": "SUI-USDT-SWAP",    "lev": 7},
+    "APT":    {"id": "APT-USDT-SWAP",    "lev": 7},
 
-⏰ Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-📊 Режим: ТОЛЬКО СИГНАЛЫ
-⚡ Статус: РАБОТАЕТ
+    # 🔗 DEFI (Lev 7x)
+    "LINK":   {"id": "LINK-USDT-SWAP",   "lev": 7},
+    "ARB":    {"id": "ARB-USDT-SWAP",    "lev": 7},
+    "OP":     {"id": "OP-USDT-SWAP",     "lev": 7},
+    "TIA":    {"id": "TIA-USDT-SWAP",    "lev": 7},
 
-*Функции:*
-✅ Анализ рынка (индикаторы)
-✅ AI фильтрация сигналов
-✅ Уведомления в Telegram
-❌ Автоторговля отключена
+    # 🤖 AI & MEME (Lev 3x-5x)
+    "FET":    {"id": "FET-USDT-SWAP",    "lev": 5},
+    "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 5},
+    "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3},
+    "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3},
+    "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
+}
 
-*Параметры:*
-📈 Таймфрейм: 15m (фьючерсы), 4H (спот)
-🔔 Задержка сигналов: 30 минут
-🤖 AI анализ: {'ВКЛЮЧЕН' if os.getenv("DEEPSEEK_API_KEY") else 'ОТКЛЮЧЕН'}
+# 2. 🏦 СПИСОК СПОТА
+SPOT_SYMBOLS = {
+    "BTC": "BTC-USDT",
+    "ETH": "ETH-USDT",
+    "SOL": "SOL-USDT",
+    "TON": "TON-USDT",
+    "SUI": "SUI-USDT",
+    "BNB": "BNB-USDT",
+}
 
-Бот начал мониторинг рынка...
-        """
+class TradingAgent:
+    def __init__(self, bot_token, chat_id, deepseek_key):
+        self.bot_token = bot_token
+        self.chat_id = chat_id
+        self.client = OpenAI(api_key=deepseek_key)
+        self.positions = {name: None for name in FUTURES_SYMBOLS}
+        self.spot_positions = {name: None for name in SPOT_SYMBOLS}
+
+    def send(self, text):
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{self.bot_token}/sendMessage", 
+                json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, 
+                timeout=5
+            )
+        except: pass
+
+    def get_candles(self, symbol, bar, limit=100):
+        try:
+            r = requests.get(OKX_URL, params={"instId": symbol, "bar": bar, "limit": limit}, timeout=10)
+            data = r.json().get("data", [])
+            if not data: return None
+            df = pd.DataFrame(data, columns=["ts", "o", "h", "l", "c", "v", "volCcy", "volCcyQuote", "confirm"])
+            df = df.iloc[::-1].reset_index(drop=True)
+            df[["o", "h", "l", "c", "v"]] = df[["o", "h", "l", "c", "v"]].astype(float)
+            return df
+        except: return None
+
+    # 🔥 ДИНАМИЧЕСКИЙ AI МОЗГ
+    def ask_ai(self, mode, symbol, price, rsi, adx, trend, extra_info=""):
         
-        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": message,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        }
-        
-        response = requests.post(url, json=payload, timeout=10)
-        return response.status_code == 200
-        
-    except Exception as e:
-        print(f"❌ Ошибка отправки стартового уведомления: {e}")
-        return False
-
-def main():
-    """Главная функция запуска"""
-    print("\n" + "="*60)
-    print("🤖 АНАЛИТИЧЕСКИЙ АГЕНТ - ТОЛЬКО СИГНАЛЫ")
-    print("="*60)
-    print("📊 Автор: Trading Bot AI Assistant")
-    print("📅 Дата: " + datetime.now().strftime("%Y-%m-%d"))
-    print("⏰ Время: " + datetime.now().strftime("%H:%M:%S"))
-    print("="*60)
-    
-    # Регистрация обработчика сигналов
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # Проверка окружения
-    check_environment()
-    
-    # Попытка отправить уведомление о запуске
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    
-    if bot_token and chat_id:
-        print("\n📨 Отправка уведомления о запуске в Telegram...")
-        if send_telegram_startup(bot_token, chat_id):
-            print("✅ Стартовое уведомление отправлено")
+        # 1. ОПРЕДЕЛЕНИЕ СТРАТЕГИИ ПО СИЛЕ ТРЕНДА (ADX)
+        if mode == "SPOT":
+            strategy_name = "INVESTOR (Buy the Dip)"
+            system_prompt = "Ты Инвестор. Твоя цель — накопление фундаментальных активов на просадках. Ищи перепроданность."
         else:
-            print("⚠️  Не удалось отправить стартовое уведомление")
-    else:
-        print("\n⚠️  Telegram уведомления отключены")
-    
-    print("\n" + "="*60)
-    print("🚀 ЗАПУСК АГЕНТА...")
-    print("="*60)
-    print("⚡ Бот начинает работу через 5 секунд")
-    print("🛑 Для остановки нажмите Ctrl+C")
-    print("="*60)
-    
-    time.sleep(5)  # Пауза перед запуском
-    
-    try:
-        # Создание и запуск агента
-        agent = TradingAgent()
-        
-        # Запуск основного цикла
-        agent.run()
-        
-    except KeyboardInterrupt:
-        print(f"\n🛑 [{datetime.now().strftime('%H:%M:%S')}] Остановка по команде пользователя")
-        
-        # Отправка уведомления об остановке
-        if bot_token and chat_id:
-            try:
-                import requests
-                message = f"""
-🛑 *АНАЛИТИЧЕСКИЙ БOT ОСТАНОВЛЕН*
-
-⏰ Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-📊 Статус: ВЫКЛЮЧЕН
-
-Бот был остановлен пользователем.
-До новых сигналов! 👋
+            # Логика переключения для Фьючерсов
+            if adx < 25:
+                strategy_name = "🛡️ SNIPER (Conservative)"
+                system_prompt = """
+                Ты — Консервативный Риск-Менеджер (Strategy: SNIPER).
+                Рынок слабый (ADX < 25). Твоя задача — отсеять шум.
+                ПРАВИЛА:
+                1. Если RSI > 65, ЗАПРЕТИ сделку (слишком рискованно во флэте).
+                2. Требуй идеального подтверждения. Любое сомнение = WAIT.
                 """
-                
-                url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                payload = {
-                    "chat_id": chat_id,
-                    "text": message,
-                    "parse_mode": "Markdown"
-                }
-                
-                requests.post(url, json=payload, timeout=5)
-                print("✅ Уведомление об остановке отправлено")
-            except:
-                print("⚠️  Не удалось отправить уведомление об остановке")
-        
-    except Exception as e:
-        print(f"\n💥 КРИТИЧЕСКАЯ ОШИБКА: {e}")
-        print("🔄 Перезапустите бот вручную")
-        
-        # Отправка уведомления об ошибке
-        if bot_token and chat_id:
-            try:
-                import requests
-                message = f"""
-💥 *БОТ АВАРИЙНО ОСТАНОВЛЕН*
-
-⏰ Время: {datetime.now().strftime('%H:%M:%S')}
-❌ Ошибка: {str(e)[:100]}
-📊 Статус: АВАРИЯ
-
-Требуется ручной перезапуск!
+            elif adx > 40:
+                strategy_name = "🚀 MOMENTUM (Aggressive)"
+                system_prompt = """
+                Ты — Агрессивный Трейдер (Strategy: MOMENTUM).
+                Рынок очень сильный (ADX > 40). Игнорируй перекупленность!
+                ПРАВИЛА:
+                1. Если RSI высокий (даже 75), это нормально для пампа. РАЗРЕШАЙ сделку.
+                2. Главное — не упустить ракету.
                 """
-                
-                url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                payload = {
-                    "chat_id": chat_id,
-                    "text": message,
-                    "parse_mode": "Markdown"
-                }
-                
-                requests.post(url, json=payload, timeout=5)
-            except:
-                pass
-        
-        sys.exit(1)
-    
-    print(f"\n✅ [{datetime.now().strftime('%H:%M:%S')}] Работа завершена корректно")
+            else:
+                strategy_name = "⚖️ SMART MONEY (Balanced)"
+                system_prompt = """
+                Ты — Аналитик VSA (Strategy: SMART MONEY).
+                Рынок в норме. Следи за объемами.
+                ПРАВИЛА:
+                1. Если цена растет без объема — это ловушка.
+                2. Ищи баланс между риском и прибылью.
+                """
 
-if __name__ == "__main__":
-    main()
+        print(f"🧠 AI analyzing {symbol} using {strategy_name}...")
+
+        user_prompt = f"""
+        АКТИВ: {symbol}
+        ЦЕНА: {price}
+        RSI: {rsi}
+        ADX: {adx}
+        ТРЕНД: {trend}
+        ИНФО: {extra_info}
+        
+        Верни JSON:
+        Risk: [1-10]/10
+        Verdict: [BUY / WAIT]
+        Reason: [Макс 10 слов]
+        """
+
+        for i in range(2):
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=100
+                )
+                # Возвращаем вердикт + имя стратегии для логов
+                return response.choices[0].message.content, strategy_name
+            except Exception as e:
+                if "429" in str(e): time.sleep(2); continue
+                return "AI Error", strategy_name
+        return "Skip", strategy_name
+
+    # --- ФЬЮЧЕРСЫ (15m) ---
+    def check_futures(self):
+        print(f"--- 🚀 Checking Futures ---")
+        cycle_signals = 0
+        
+        for name, info in FUTURES_SYMBOLS.items():
+            if cycle_signals >= 3: break
+            
+            symbol = info["id"]
+            lev = info["lev"]
+            time.sleep(0.15)
+
+            df = self.get_candles(symbol, "15m")
+            if df is None: continue
+
+            df["ema_f"] = ta.ema(df["c"], length=9)
+            df["ema_s"] = ta.ema(df["c"], length=21)
+            df["rsi"] = ta.rsi(df["c"], length=14)
+            df["atr"] = ta.atr(df["h"], df["l"], df["c"], length=14)
+            df["adx"] = ta.adx(df["h"], df["l"], df["c"], length=14)["ADX_14"]
+            
+            curr = df.iloc[-2]
+            adx_val = curr["adx"]
+
+            # Базовый тех. сигнал (Cross)
+            # В "MOMENTUM" режиме мы допускаем более высокий RSI для входа
+            rsi_limit = 75 if adx_val > 40 else 70
+
+            signal = None
+            if (curr["ema_f"] > curr["ema_s"] and 
+                50 < curr["rsi"] < rsi_limit and 
+                adx_val > 20):
+                signal = "BUY"
+
+            if signal and self.positions[name] != signal:
+                
+                # Фильтр 1D
+                d_df = self.get_candles(symbol, "1D", limit=50)
+                if d_df is not None:
+                    ema20_d = ta.ema(d_df["c"], length=20).iloc[-1]
+                    if curr["c"] < ema20_d: continue 
+
+                # AI Check (Dynamic)
+                ai_verdict, strategy_used = self.ask_ai("FUTURES", name, curr["c"], round(curr["rsi"],1), round(adx_val,1), "UP (15m)")
+                
+                if "WAIT" in ai_verdict.upper(): continue
+
+                tp = curr["c"] + (curr["atr"] * 3.5)
+                sl = curr["c"] - (curr["atr"] * 2.0)
+
+                self.send(
+                    f"🚀 **LONG SIGNAL**\n#{name} — BUY 🟢\n"
+                    f"🧠 Strat: **{strategy_used}**\n"
+                    f"⚙️ Lev: {lev}x\n"
+                    f"📊 ADX: {round(adx_val,1)}\n"
+                    f"💰 Entry: {curr['c']}\n🎯 TP: {round(tp,4)}\n🛑 SL: {round(sl,4)}\n"
+                    f"🤖 AI: {ai_verdict}"
+                )
+                self.positions[name] = signal
+                cycle_signals += 1
+                time.sleep(2)
+
+    # --- СПОТ (4H) ---
+    def check_spot(self):
+        print(f"--- 🏦 Checking Spot ---")
+        for name, symbol in SPOT_SYMBOLS.items():
+            time.sleep(0.1)
+            df = self.get_candles(symbol, "4H", limit=200)
+            if df is None: continue
+
+            rsi = ta.rsi(df["c"], length=14).iloc[-1]
+            ema200 = ta.ema(df["c"], length=200).iloc[-1]
+            price = df["c"].iloc[-1]
+
+            is_dip = False
+            setup = ""
+
+            if price > ema200 and rsi < 40:
+                is_dip = True
+                setup = "Trend Pullback"
+            elif rsi < 30:
+                is_dip = True
+                setup = "Oversold Bounce"
+
+            if is_dip and self.spot_positions[name] != "BUY":
+                # Для спота ADX не так важен, передаем 0
+                ai_verdict, strategy_used = self.ask_ai("SPOT", name, price, round(rsi,1), 0, setup)
+                
+                self.send(
+                    f"💎 **SPOT INVEST**\n#{name} — ACCUMULATE 🔵\n"
+                    f"📉 RSI: {round(rsi, 1)}\n"
+                    f"🧠 Strat: {strategy_used}\n"
+                    f"💰 Price: {price}\n"
+                    f"🤖 AI: {ai_verdict}"
+                )
+                self.spot_positions[name] = "BUY"
+                time.sleep(2)
+            
+            elif rsi > 55:
+                self.spot_positions[name] = None
+
+    def analyze(self):
+        self.check_futures()
+        self.check_spot()
