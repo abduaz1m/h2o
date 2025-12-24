@@ -17,8 +17,8 @@ API_PASSWORD = "ВАШ_OKX_PASSPHRASE"
 SANDBOX_MODE = False  
 
 # Настройки торговли
-MAX_POSITIONS = 3     # Максимум сделок одновременно
-ORDER_AMOUNT_USD = 50 # Размер входа в сделку в $
+MAX_POSITIONS = 10     # Максимум сделок одновременно
+ORDER_AMOUNT_USD = 100000 # Размер входа в сделку в $
 
 # СПИСОК МОНЕТ (Фьючерсы)
 FUTURES_SYMBOLS = {
