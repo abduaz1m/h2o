@@ -4,7 +4,7 @@ from agent import TradingAgent
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-OPENAI_KEY = os.getenv("OPENAI_API_KEY") # 🆕 Берем ключ из переменных среды
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY") 
 
 # Проверка наличия ключей
 if not OPENAI_KEY:
