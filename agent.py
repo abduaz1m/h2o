@@ -51,7 +51,7 @@ FUTURES_SYMBOLS = {
     "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
     "STRK":   {"id": "STRK-USDT-SWAP",    "lev": 3},
 }
-
+]
 # 🏦 СПОТ (Только сигналы Buy/Sell для инвестиций)
 SPOT_SYMBOLS = [
     "BTC": "BTC-USDT",
