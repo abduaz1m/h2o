@@ -11,7 +11,7 @@ if not DEEPSEEK_KEY:
     exit()
 
 agent = TradingAgent(BOT_TOKEN, CHAT_ID, DEEPSEEK_KEY)
-agent.send("🤖 AI Agent Activated with DeepSeek logic.")
+agent.send("🤖 AI Agent by Azim Activated logic.")
 
 while True:
     try:
