@@ -1,20 +1,24 @@
-# bot_runner.py
 import os
-import sys
+import time
 from agent import TradingAgent
 
-if __name__ == "__main__":
-    print("🤖 Запуск аналитического агента...")
-    
-    # Проверяем только AI ключ (опционально)
-    if not os.getenv("DEEPSEEK_API_KEY"):
-        print("⚠️  ВНИМАНИЕ: AI анализ будет отключен")
-        print("   Задайте DEEPSEEK_API_KEY для полного функционала")
-    
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY") # 🆕 Берем ключ из переменных среды
+
+# Проверка наличия ключей
+if not DEEPSEEK_KEY:
+    print("❌ ОШИБКА: Не задан DEEPSEEK_API_KEY")
+    exit()
+
+agent = TradingAgent(BOT_TOKEN, CHAT_ID, DEEPSEEK_KEY)
+
+agent.send("🤖 AI Agent for Azim.")
+
+while True:
     try:
-        agent = TradingAgent()
-        agent.run()
-    except KeyboardInterrupt:
-        print("\n🛑 Агент остановлен")
+        agent.analyze()
+        time.sleep(60) # Простая пауза (лучше использовать "умную" паузу из прошлого ответа)
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        print(f"Critical Loop Error: {e}")
+        time.sleep(60)
