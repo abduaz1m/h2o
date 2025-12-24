@@ -28,22 +28,14 @@ FUTURES_SYMBOLS = {
     "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 10},
     "LTC":    {"id": "LTC-USDT-SWAP",    "lev": 10},
     "XRP":    {"id": "XRP-USDT-SWAP",    "lev": 10},
-
-
-
-    # 🏗 L1 (Lev 7x)
     "TON":    {"id": "TON-USDT-SWAP",    "lev": 7},
     "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 7},
     "SUI":    {"id": "SUI-USDT-SWAP",    "lev": 7},
     "APT":    {"id": "APT-USDT-SWAP",    "lev": 7},
-
-    # 🔗 DEFI (Lev 7x)
     "LINK":   {"id": "LINK-USDT-SWAP",   "lev": 7},
     "ARB":    {"id": "ARB-USDT-SWAP",    "lev": 7},
     "OP":     {"id": "OP-USDT-SWAP",     "lev": 7},
     "TIA":    {"id": "TIA-USDT-SWAP",    "lev": 7},
-
-    # 🤖 AI & MEME (Lev 3x-5x)
     "FET":    {"id": "FET-USDT-SWAP",    "lev": 5},
     "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 5},
     "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3},
@@ -51,8 +43,7 @@ FUTURES_SYMBOLS = {
     "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
     "STRK":   {"id": "STRK-USDT-SWAP",    "lev": 3},
 }
-]
-# 🏦 СПОТ (Только сигналы Buy/Sell для инвестиций)
+
 SPOT_SYMBOLS = [
     "BTC": "BTC-USDT",
     "ETH": "ETH-USDT",
