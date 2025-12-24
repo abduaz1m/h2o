@@ -7,7 +7,7 @@ CHAT_ID = os.getenv("CHAT_ID")
 DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY") # 🆕 Берем ключ из переменных среды
 
 # Проверка наличия ключей
-if not OPENAI_KEY:
+if not DEEPSEEK_KEY:
     print("❌ ОШИБКА: Не задан DEEPSEEK_API_KEY")
     exit()
 
