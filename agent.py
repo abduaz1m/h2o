@@ -54,12 +54,15 @@ SPOT_SYMBOLS = {
 }
 
 class TradingAgent:
-    def __init__(self, bot_token, chat_id, openai_key):
+def __init__(self, bot_token, chat_id, deepseek_key):
         self.bot_token = bot_token
         self.chat_id = chat_id
-        self.client = OpenAI(api_key=openai_key)
-        self.positions = {name: None for name in FUTURES_SYMBOLS}
-        self.spot_positions = {name: None for name in SPOT_SYMBOLS}
+        
+        # 👇 ИЗМЕНЕНИЕ 1: Подключение к DeepSeek
+        self.client = OpenAI(
+            api_key=deepseek_key, 
+            base_url="https://api.deepseek.com" # Указываем адрес DeepSeek
+        )
 
     def send(self, text):
         try:
@@ -82,7 +85,7 @@ class TradingAgent:
         except: return None
 
     # 🔥 ДИНАМИЧЕСКИЙ AI МОЗГ
-    def ask_ai(self, mode, symbol, price, rsi, adx, trend, extra_info=""):
+    def ask_ai(self, mode, symbol, price, rsi, news, adx, trend, extra_info=""):
         
         # 1. ОПРЕДЕЛЕНИЕ СТРАТЕГИИ ПО СИЛЕ ТРЕНДА (ADX)
         if mode == "SPOT":
@@ -118,38 +121,38 @@ class TradingAgent:
                 2. Ищи баланс между риском и прибылью.
                 """
 
-        print(f"🧠 AI analyzing {symbol} using {strategy_name}...")
-
-        user_prompt = f"""
-        АКТИВ: {symbol}
-        ЦЕНА: {price}
-        RSI: {rsi}
-        ADX: {adx}
-        ТРЕНД: {trend}
-        ИНФО: {extra_info}
+        print(f"🧠 Asking DeepSeek about {symbol}...")
+        
+        prompt = f"""
+        Ты профессиональный трейдер.
+        Актив: {symbol}
+        Цена: {price}
+        RSI (14): {rsi}
+        ADX (14): {adx}
+        
+        Стратегия: Вход только по тренду.
+        1. Если ADX < 20, рынок спит -> WAIT.
+        2. Если RSI > 70, перекуплен -> WAIT.
+        3. Если RSI 50-70 и ADX > 25 -> BUY.
         
         Дай ответ в формате JSON:
         Risk: [1-10]/10
         Verdict: [BUY / WAIT]
-        Reason: [Макс 10 слов]
+        Reason: [Коротко]
         """
 
         for i in range(2):
             try:
-                response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    max_tokens=100
+                    response = self.client.chat.completions.create(
+                    model="deepseek-chat", # 👇 ИЗМЕНЕНИЕ 2: Модель DeepSeek
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=100,
+                    temperature=0.0 # Делаем ответы строгими
                 )
-                # Возвращаем вердикт + имя стратегии для логов
-                return response.choices[0].message.content, strategy_name
+                return response.choices[0].message.content
             except Exception as e:
-                if "429" in str(e): time.sleep(2); continue
-                return "AI Error", strategy_name
-        return "Skip", strategy_name
+                time.sleep(1)
+        return "Skip"
 
     # --- ФЬЮЧЕРСЫ (15m) ---
     def check_futures(self):
