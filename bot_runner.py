@@ -4,14 +4,14 @@ from agent import TradingAgent
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY") # 🆕 Берем ключ из переменных среды
+OPENAI_KEY = os.getenv("OPENAI_API_KEY") # 🆕 Берем ключ из переменных среды
 
 # Проверка наличия ключей
-if not DEEPSEEK_KEY:
-    print("❌ ОШИБКА: Не задан DEEPSEEK_API_KEY")
+if not OPENAI_KEY:
+    print("❌ ОШИБКА: Не задан OPENAI_API_KEY")
     exit()
 
-agent = TradingAgent(BOT_TOKEN, CHAT_ID, DEEPSEEK_KEY)
+agent = TradingAgent(BOT_TOKEN, CHAT_ID, OPENAI_KEY)
 
 agent.send("🤖 AI Agent Activated with GPT-4o-mini logic.")
 
