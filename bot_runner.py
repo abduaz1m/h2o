@@ -2,22 +2,26 @@ import os
 import time
 from agent import TradingAgent
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY") 
-
 # Проверка наличия ключей
-if not DEEPSEEK_KEY:
+if not os.getenv("DEEPSEEK_API_KEY"):
     print("❌ ОШИБКА: Не задан DEEPSEEK_API_KEY")
     exit()
 
-agent = TradingAgent(BOT_TOKEN, CHAT_ID, DEEPSEEK_KEY)
-agent.send("🤖 Bot started with DeepSeek V3 engine")
+# Создаем агента
+agent = TradingAgent()
 
-while True:
-    try:
-        agent.analyze()
-        time.sleep(60) # Простая пауза (лучше использовать "умную" паузу из прошлого ответа)
-    except Exception as e:
-        print(f"Critical Loop Error: {e}")
-        time.sleep(60)
+# Отправляем сообщение о старте
+agent.send_telegram("🤖 Bot started with DeepSeek V3 engine")
+
+# Запускаем цикл вручную
+try:
+    while True:
+        sleep_time = agent.run_cycle()
+        time.sleep(sleep_time)
+except KeyboardInterrupt:
+    agent.log("🛑 Остановка по команде пользователя")
+    agent.send_telegram("🛑 *Торговый агент остановлен*")
+except Exception as e:
+    agent.log(f"💥 Критическая ошибка: {e}", "CRITICAL")
+    agent.send_telegram(f"💥 *Критическая ошибка:* {str(e)}")
+    raise
