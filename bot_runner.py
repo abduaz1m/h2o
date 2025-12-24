@@ -1,24 +1,26 @@
 import os
 import time
-from agent import TradingAgent
+from agent 
+import TradingAgent
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-OPENAI_KEY = os.getenv("OPENAI_API_KEY") # 🆕 Берем ключ из переменных среды
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY") 
 
 # Проверка наличия ключей
-if not OPENAI_KEY:
-    print("❌ ОШИБКА: Не задан OPENAI_API_KEY")
+if not DEEPSEEK_KEY:
+    print("❌ ОШИБКА: Не задан DEEPSEEK_API_KEY")
     exit()
 
-agent = TradingAgent(BOT_TOKEN, CHAT_ID, OPENAI_KEY)
+# Передаем ключ DeepSeek в агента
+agent = TradingAgent(BOT_TOKEN, CHAT_ID, DEEPSEEK_KEY)
 
-agent.send("🤖 AI Agent Activated with GPT-4o-mini logic.")
+agent.send("🤖 AI Agent Activated with DeepSeek logic.")
 
 while True:
     try:
         agent.analyze()
-        time.sleep(60) # Простая пауза (лучше использовать "умную" паузу из прошлого ответа)
+        time.sleep(60) 
     except Exception as e:
         print(f"Critical Loop Error: {e}")
         time.sleep(60)
