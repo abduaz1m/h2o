@@ -1,27 +1,35 @@
+# bot_runner.py
 import os
-import time
+import sys
+
+# Добавляем путь к проекту
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from agent import TradingAgent
 
-# Проверка наличия ключей
-if not os.getenv("DEEPSEEK_API_KEY"):
-    print("❌ ОШИБКА: Не задан DEEPSEEK_API_KEY")
-    exit()
+def main():
+    print("🤖 Запуск торгового бота...")
+    
+    # Проверка обязательных переменных
+    required_vars = ["OKX_API_KEY", "OKX_API_SECRET", "OKX_PASSWORD"]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        print(f"❌ Отсутствуют переменные окружения: {', '.join(missing_vars)}")
+        sys.exit(1)
+    
+    try:
+        # Создаем агента
+        agent = TradingAgent()
+        
+        # Запускаем
+        agent.run()
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Бот остановлен пользователем")
+    except Exception as e:
+        print(f"💥 Критическая ошибка: {e}")
+        sys.exit(1)
 
-# Создаем агента
-agent = TradingAgent()
-
-# Отправляем сообщение о старте
-agent.send_telegram("🤖 Bot started with DeepSeek V3 engine")
-
-# Запускаем цикл вручную
-try:
-    while True:
-        sleep_time = agent.run_cycle()
-        time.sleep(sleep_time)
-except KeyboardInterrupt:
-    agent.log("🛑 Остановка по команде пользователя")
-    agent.send_telegram("🛑 *Торговый агент остановлен*")
-except Exception as e:
-    agent.log(f"💥 Критическая ошибка: {e}", "CRITICAL")
-    agent.send_telegram(f"💥 *Критическая ошибка:* {str(e)}")
-    raise
+if __name__ == "__main__":
+    main()
