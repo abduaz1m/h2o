@@ -54,7 +54,12 @@ FUTURES_SYMBOLS = {
 
 # 🏦 СПОТ (Только сигналы Buy/Sell для инвестиций)
 SPOT_SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "TON/USDT"
+    "BTC": "BTC-USDT",
+    "ETH": "ETH-USDT",
+    "SOL": "SOL-USDT",
+    "TON": "TON-USDT",
+    "SUI": "SUI-USDT",
+    "BNB": "BNB-USDT",
 ]
 
 class TradingAgent:
