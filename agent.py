@@ -49,10 +49,10 @@ SPOT_SYMBOLS = {
 }
 
 class TradingAgent:
-    def __init__(self, bot_token, chat_id, deepseek_key):
+    def __init__(self, bot_token, chat_id, openai_key):
         self.bot_token = bot_token
         self.chat_id = chat_id
-        self.client = OpenAI(api_key=deepseek_key)
+        self.client = OpenAI(api_key=openai_key)
         self.positions = {name: None for name in FUTURES_SYMBOLS}
         self.spot_positions = {name: None for name in SPOT_SYMBOLS}
 
