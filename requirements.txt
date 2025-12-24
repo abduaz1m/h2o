@@ -3,3 +3,4 @@ pandas
 pandas_ta
 openai
 ccxt
+python-dotenv>=1.0.0
