@@ -18,53 +18,31 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 # --- ⚙️ НАСТРОЙКИ ТОРГОВЛИ ---
 SANDBOX_MODE = False
 
-# Параметры риска
-MAX_POSITIONS = 5
-ORDER_AMOUNT_USD = 50
-STOP_LOSS_PERCENT = 2.0
-TAKE_PROFIT_PERCENT = 3.0
-MAX_DAILY_LOSS_PERCENT = 5.0
+# Параметры анализа
+ANALYSIS_TIMEFRAME = "15m"  # Таймфрейм для анализа
+SIGNAL_COOLDOWN_MINUTES = 30  # Задержка между одинаковыми сигналами
 
-# --- 🕒 КОНФИГУРАЦИЯ ТАЙМФРЕЙМОВ ---
-TIMEFRAME_CONFIG = {
-    "futures": {
-        "trend": "1h",      # Основной тренд
-        "signal": "30m",    # Сигнальный таймфрейм
-        "entry": "15m",     # Таймфрейм для входа
-    },
-    "spot": {
-        "trend": "4h",      # Долгосрочный тренд
-        "signal": "1h",     # Сигнальный таймфрейм
-    }
-}
-
-# Веса таймфреймов для принятия решений
-TIMEFRAME_WEIGHTS = {
-    "1h": 0.5,
-    "30m": 0.3,
-    "15m": 0.2
-}
-
-# --- 📊 ТОРГОВЫЕ ПАРЫ (без STRK) ---
+# --- 📊 ТОРГОВЫЕ ПАРЫ ---
+# Убрал global - использую просто константы
 FUTURES_SYMBOLS = {
-    "BTC/USDT:USDT": {"lev": 5, "timeframes": ["1h", "30m", "15m"]},
-    "ETH/USDT:USDT": {"lev": 5, "timeframes": ["1h", "30m", "15m"]},
-    "SOL/USDT:USDT": {"lev": 5, "timeframes": ["1h", "30m", "15m"]},
-    "TON/USDT:USDT": {"lev": 3, "timeframes": ["1h", "30m", "15m"]},
-    "DOGE/USDT:USDT": {"lev": 3, "timeframes": ["1h", "30m", "15m"]},
-    "PEPE/USDT:USDT": {"lev": 3, "timeframes": ["1h", "30m", "15m"]},
-    "XRP/USDT:USDT": {"lev": 3, "timeframes": ["1h", "30m", "15m"]},
-    "ADA/USDT:USDT": {"lev": 3, "timeframes": ["1h", "30m", "15m"]},
-    "MATIC/USDT:USDT": {"lev": 3, "timeframes": ["1h", "30m", "15m"]},
-    "LINK/USDT:USDT": {"lev": 3, "timeframes": ["1h", "30m", "15m"]},
-    "AVAX/USDT:USDT": {"lev": 3, "timeframes": ["1h", "30m", "15m"]},
+    "BTC/USDT:USDT": {"lev": 5},
+    "ETH/USDT:USDT": {"lev": 5},
+    "SOL/USDT:USDT": {"lev": 5},
+    "TON/USDT:USDT": {"lev": 3},
+    "DOGE/USDT:USDT": {"lev": 3},
+    "PEPE/USDT:USDT": {"lev": 3},
+    "XRP/USDT:USDT": {"lev": 3},
+    "ADA/USDT:USDT": {"lev": 3},
+    "MATIC/USDT:USDT": {"lev": 3},
+    "LINK/USDT:USDT": {"lev": 3},
+    "AVAX/USDT:USDT": {"lev": 3},
 }
 
 SPOT_SYMBOLS = {
-    "BTC/USDT": {"timeframes": ["4h", "1h"]},
-    "ETH/USDT": {"timeframes": ["4h", "1h"]},
-    "SOL/USDT": {"timeframes": ["4h", "1h"]},
-    "TON/USDT": {"timeframes": ["4h", "1h"]},
+    "BTC/USDT": {},
+    "ETH/USDT": {},
+    "SOL/USDT": {},
+    "TON/USDT": {},
 }
 
 class TradingAgent:
@@ -75,22 +53,23 @@ class TradingAgent:
         # Проверка настроек безопасности
         self.check_security()
         
-        # Инициализация API
+        # Инициализация API (только для получения данных)
         self.init_exchange()
         self.init_ai()
         
-        # Статистика и состояние
-        self.positions = {}
-        self.spot_signals = {}
-        self.daily_pnl = 0
-        self.start_time = datetime.now()
-        self.api_request_count = 0
-        self.last_request_time = time.time()
+        # История сигналов (чтобы избежать спама)
+        self.signal_history = {}
+        self.last_check_time = datetime.now()
         
-        print(f"✅ Торговый агент инициализирован: {datetime.now()}")
-        print(f"📊 Режим: {'САНДБОКС' if SANDBOX_MODE else 'РЕАЛЬНЫЙ'}")
-        print(f"💰 Размер позиции: ${ORDER_AMOUNT_USD}")
-        print(f"🛡️ Стоп-лосс: {STOP_LOSS_PERCENT}%, Тейк-профит: {TAKE_PROFIT_PERCENT}%")
+        # Копируем символы в атрибуты класса
+        self.futures_symbols = dict(FUTURES_SYMBOLS)
+        self.spot_symbols = dict(SPOT_SYMBOLS)
+        
+        print(f"✅ Аналитический агент инициализирован: {datetime.now()}")
+        print(f"📊 Режим: ТОЛЬКО АНАЛИЗ (без автоторговли)")
+        print(f"⏰ Таймфрейм анализа: {ANALYSIS_TIMEFRAME}")
+        print(f"🔔 Задержка между сигналами: {SIGNAL_COOLDOWN_MINUTES} мин")
+        print(f"📈 Пар для анализа: {len(self.futures_symbols)} фьючерсов, {len(self.spot_symbols)} спотовых")
     
     def setup_logging(self):
         """Настройка системы логирования"""
@@ -98,71 +77,54 @@ class TradingAgent:
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         
-        self.log_file = f"{log_dir}/trading_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        self.log_file = f"{log_dir}/signals_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     
     def check_security(self):
         """Проверка безопасности настроек"""
-        if not all([API_KEY, API_SECRET, API_PASSWORD]):
-            self.log("❌ ОШИБКА: Не заданы API ключи OKX")
+        # Проверяем только AI ключ для анализа
+        if not DEEPSEEK_API_KEY:
+            self.log("⚠️ ВНИМАНИЕ: Не задан DEEPSEEK_API_KEY")
             print("""
-            ⚠️  ВНИМАНИЕ: Задайте переменные окружения:
+            ⚠️  ВНИМАНИЕ: Без AI ключа анализ будет ограничен:
             
+            Задайте переменную окружения:
+            DEEPSEEK_API_KEY=ваш_ключ_deepseek
+            
+            Для получения данных с биржи также нужны:
             OKX_API_KEY=ваш_api_key_okx
-            OKX_API_SECRET=ваш_api_secret_okx
+            OKX_API_SECRET=ваш_api_secret_okx  
             OKX_PASSWORD=ваш_api_password_okx
-            
-            Или создайте файл config.py с этими переменными.
             """)
-            raise ValueError("Отсутствуют API ключи")
     
     def init_exchange(self):
-        """Инициализация подключения к бирже"""
+        """Инициализация подключения к бирже (только для данных)"""
         try:
-            self.exchange = ccxt.okx({
-                'apiKey': API_KEY,
-                'secret': API_SECRET,
-                'password': API_PASSWORD,
-                'enableRateLimit': True,
-                'options': {'defaultType': 'swap'},
-                'timeout': 30000,
-                'rateLimit': 100,
-            })
-            
-            if SANDBOX_MODE:
-                self.exchange.set_sandbox_mode(True)
-                print("🔧 Режим сандбокса активирован")
-            
-            # Проверка подключения
-            self.exchange.fetch_time()
-            print("✅ Подключение к OKX установлено")
-            
-            # Проверяем доступность символов
-            self.check_symbol_availability()
-            
+            if all([API_KEY, API_SECRET, API_PASSWORD]):
+                self.exchange = ccxt.okx({
+                    'apiKey': API_KEY,
+                    'secret': API_SECRET,
+                    'password': API_PASSWORD,
+                    'enableRateLimit': True,
+                    'options': {'defaultType': 'swap'},
+                    'timeout': 30000,
+                    'rateLimit': 100,
+                })
+                
+                if SANDBOX_MODE:
+                    self.exchange.set_sandbox_mode(True)
+                    print("🔧 Режим сандбокса активирован")
+                
+                # Проверка подключения
+                self.exchange.fetch_time()
+                print("✅ Подключение к OKX установлено")
+            else:
+                self.exchange = None
+                print("⚠️ Ключи OKX не заданы, используем публичные данные")
+                
         except Exception as e:
-            self.log(f"❌ Ошибка подключения к OKX: {e}")
-            raise
-    
-    def check_symbol_availability(self):
-        """Проверка доступности символов на бирже"""
-        try:
-            markets = self.exchange.load_markets()
-            available_futures = []
-            
-            for symbol in FUTURES_SYMBOLS.keys():
-                if symbol in markets:
-                    available_futures.append(symbol)
-                else:
-                    self.log(f"⚠️ Символ {symbol} недоступен на OKX", "WARNING")
-            
-            # Обновляем список доступных символов
-            global FUTURES_SYMBOLS
-            FUTURES_SYMBOLS = {k: v for k, v in FUTURES_SYMBOLS.items() if k in available_futures}
-            
-            print(f"✅ Доступно {len(FUTURES_SYMBOLS)} фьючерсных пар")
-            
-        except Exception as e:
-            self.log(f"⚠️ Ошибка проверки символов: {e}", "WARNING")
+            self.log(f"⚠️ Не удалось подключиться к OKX: {e}")
+            self.exchange = None
+            print("⚠️ Будет использоваться публичный доступ к данным")
     
     def init_ai(self):
         """Инициализация AI клиента"""
@@ -195,551 +157,462 @@ class TradingAgent:
         except:
             pass
     
-    def safe_api_call(self, func, *args, **kwargs):
-        """Безопасный вызов API с лимитами"""
-        # Соблюдение rate limit
-        elapsed = time.time() - self.last_request_time
-        if elapsed < 0.1:
-            time.sleep(0.1 - elapsed)
-        
-        self.api_request_count += 1
-        self.last_request_time = time.time()
-        
-        try:
-            return func(*args, **kwargs)
-        except ccxt.RateLimitExceeded:
-            self.log("⚠️ Превышен лимит запросов, пауза 5 секунд", "WARNING")
-            time.sleep(5)
-            return func(*args, **kwargs)
-        except ccxt.RequestTimeout:
-            self.log("⚠️ Таймаут запроса, повтор через 2 секунды", "WARNING")
-            time.sleep(2)
-            return func(*args, **kwargs)
-        except Exception as e:
-            self.log(f"❌ Ошибка API: {e}", "ERROR")
-            return None
-    
     def get_candles(self, symbol, timeframe='15m', limit=100):
-        """Получение свечных данных с безопасной проверкой"""
+        """Получение свечных данных"""
         try:
-            ohlcv = self.safe_api_call(
-                self.exchange.fetch_ohlcv, symbol, timeframe, limit=limit
-            )
+            # Если есть подключение к бирже, используем его
+            if self.exchange:
+                ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            else:
+                # Иначе используем публичный API без ключей
+                exchange_public = ccxt.okx()
+                ohlcv = exchange_public.fetch_ohlcv(symbol, timeframe, limit=limit)
             
             # Безопасная проверка данных
-            if ohlcv is None:
-                return None
-            if not isinstance(ohlcv, list):
-                return None
-            if len(ohlcv) == 0:
+            if not ohlcv or not isinstance(ohlcv, list) or len(ohlcv) == 0:
                 return None
                 
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
             # Явная проверка DataFrame
-            if df.empty:
-                return None
-            if len(df) < 10:
+            if df.empty or len(df) < 10:
                 return None
                 
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             return df
             
         except Exception as e:
             self.log(f"❌ Ошибка получения данных {symbol} {timeframe}: {e}", "ERROR")
             return None
     
-    def get_multi_timeframe_data(self, symbol, timeframes):
-        """Получение данных по нескольким таймфреймам"""
-        data = {}
-        for tf in timeframes:
-            df = self.get_candles(symbol, tf)
-            if df is not None and not df.empty and len(df) >= 20:
-                # Добавляем базовые индикаторы
-                df['ema9'] = ta.ema(df['close'], length=9)
-                df['ema21'] = ta.ema(df['close'], length=21)
-                df['rsi'] = ta.rsi(df['close'], length=14)
-                
-                # Безопасный расчет ADX
-                try:
-                    adx_result = ta.adx(df['high'], df['low'], df['close'])
-                    if adx_result is not None and 'ADX_14' in adx_result:
-                        df['adx'] = adx_result['ADX_14']
-                    else:
-                        df['adx'] = 25  # Значение по умолчанию
-                except:
-                    df['adx'] = 25
-                
-                data[tf] = df
-            
-            time.sleep(0.2)
+    def calculate_indicators(self, df):
+        """Расчет индикаторов"""
+        if df is None or df.empty:
+            return None
         
-        return data if data else None
+        try:
+            # EMA
+            df['ema9'] = ta.ema(df['close'], length=9)
+            df['ema21'] = ta.ema(df['close'], length=21)
+            
+            # RSI
+            df['rsi'] = ta.rsi(df['close'], length=14)
+            
+            # ADX
+            adx_result = ta.adx(df['high'], df['low'], df['close'])
+            if adx_result is not None and 'ADX_14' in adx_result:
+                df['adx'] = adx_result['ADX_14']
+            else:
+                df['adx'] = 25
+            
+            return df
+            
+        except Exception as e:
+            self.log(f"❌ Ошибка расчета индикаторов: {e}", "ERROR")
+            return None
     
-    def analyze_trend_multi_tf(self, data):
-        """Анализ тренда по нескольким таймфреймам"""
-        if not data:
-            return "neutral", 0
-        
-        scores = []
-        
-        for tf, df in data.items():
-            if df is None or df.empty:
-                continue
-                
-            curr = df.iloc[-1]
-            weight = TIMEFRAME_WEIGHTS.get(tf, 0.2)
-            
-            tf_score = 0
-            
-            # 1. EMA направление
-            if 'ema9' in df.columns and 'ema21' in df.columns:
-                if curr['ema9'] > curr['ema21']:
-                    tf_score += 0.4
-                elif curr['ema9'] < curr['ema21']:
-                    tf_score -= 0.4
-            
-            # 2. RSI момент
-            if 'rsi' in df.columns:
-                rsi = curr['rsi']
-                if 50 < rsi < 70:
-                    tf_score += 0.3
-                elif 30 < rsi < 50:
-                    tf_score -= 0.3
-            
-            # 3. ADX сила тренда
-            if 'adx' in df.columns:
-                adx = curr['adx']
-                if adx > 25:
-                    if tf_score > 0:
-                        tf_score += 0.3
-                    elif tf_score < 0:
-                        tf_score -= 0.3
-            
-            scores.append(tf_score * weight)
-        
-        if not scores:
-            return "neutral", 0
-        
-        total_score = sum(scores) / len(scores)
-        
-        # Интерпретация
-        if total_score > 0.3:
-            return "strong_bullish", total_score
-        elif total_score > 0.1:
-            return "bullish", total_score
-        elif total_score < -0.3:
-            return "strong_bearish", total_score
-        elif total_score < -0.1:
-            return "bearish", total_score
-        else:
-            return "neutral", total_score
-    
-    def ask_ai_analysis(self, symbol, trend_data, price, indicators):
-        """Запрос анализа у AI"""
+    def ask_ai_analysis(self, symbol, price, rsi, adx, signal_type, trend_info=""):
+        """AI анализ сигнала"""
         if not self.ai_client:
-            return {"verdict": "NO", "reason": "AI не инициализирован", "confidence": 0}
+            return "AI не доступен"
+        
+        print(f"🧠 AI анализ для {symbol} ({signal_type})...")
         
         prompt = f"""
-        Анализ торговой ситуации:
+        Ты криптотрейдер-аналитик. Проанализируй ситуацию:
         
-        АКТИВ: {symbol}
-        ЦЕНА: {price}
+        📊 Актив: {symbol}
+        💰 Цена: {price}
+        📈 Сигнал: {signal_type}
+        📊 Тех.индикаторы:
+        - RSI: {rsi}
+        - ADX: {adx}
+        {trend_info}
         
-        ИНДИКАТОРЫ:
-        RSI: {indicators.get('rsi', 'N/A')}
-        ADX: {indicators.get('adx', 'N/A')}
-        Тренд: {indicators.get('trend', 'N/A')}
+        📋 ПРАВИЛА АНАЛИЗА:
+        1. Для BUY/LONG: RSI < 65, ADX > 20, тренд восходящий
+        2. Для SELL/SHORT: RSI > 35, ADX > 20, тренд нисходящий
+        3. Если ADX < 15 - рынок во флэте, избегай входов
+        4. RSI > 75 - перекупленность, RSI < 25 - перепроданность
         
-        Верни JSON в формате:
-        {{
-            "verdict": "YES" или "NO",
-            "confidence": число от 1 до 10,
-            "reason": "краткое объяснение"
-        }}
+        🔍 Вердикт: 
+        - "STRONG_BUY" - сильный сигнал на покупку
+        - "BUY" - умеренный сигнал на покупку  
+        - "NEUTRAL" - нейтрально, жди
+        - "SELL" - умеренный сигнал на продажу
+        - "STRONG_SELL" - сильный сигнал на продажу
+        
+        📝 Объяснение: кратко объясни решение (1-2 предложения)
+        
+        📌 Формат ответа:
+        Вердикт: [STRONG_BUY/BUY/NEUTRAL/SELL/STRONG_SELL]
+        Уверенность: [1-10]/10
+        Объяснение: [твое объяснение]
         """
         
         try:
             response = self.ai_client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=150,
+                max_tokens=200,
                 temperature=0.3
             )
             
-            content = response.choices[0].message.content
-            
-            # Парсинг JSON
-            try:
-                import re
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group())
-            except:
-                pass
-            
-            # Fallback
-            if "YES" in content.upper():
-                return {"verdict": "YES", "reason": "AI одобрил", "confidence": 7}
-            else:
-                return {"verdict": "NO", "reason": "AI отказал", "confidence": 3}
-                
-        except Exception as e:
-            self.log(f"❌ Ошибка AI: {e}", "ERROR")
-            return {"verdict": "NO", "reason": f"Ошибка AI: {e}", "confidence": 0}
-    
-    def calculate_position_size(self, symbol):
-        """Расчет размера позиции"""
-        try:
-            ticker = self.safe_api_call(self.exchange.fetch_ticker, symbol)
-            if not ticker:
-                return 0
-            
-            price = ticker['last']
-            amount = ORDER_AMOUNT_USD / price
-            
-            # Для фьючерсов учитываем плечо
-            if ":USDT" in symbol:
-                amount = amount * 0.2  # Консервативный подход
-            
-            return round(amount, 8)
+            return response.choices[0].message.content
             
         except Exception as e:
-            self.log(f"❌ Ошибка расчета размера позиции: {e}", "ERROR")
-            return 0
+            self.log(f"❌ Ошибка AI анализа: {e}", "ERROR")
+            return f"Ошибка AI анализа: {e}"
     
-    def open_position(self, symbol, side, leverage=1):
-        """Открытие позиции"""
-        try:
-            if symbol in self.positions:
+    def check_signal_cooldown(self, symbol, signal_type):
+        """Проверка времени с последнего сигнала"""
+        key = f"{symbol}_{signal_type}"
+        
+        if key in self.signal_history:
+            last_time = self.signal_history[key]
+            time_diff = (datetime.now() - last_time).total_seconds() / 60
+            
+            if time_diff < SIGNAL_COOLDOWN_MINUTES:
                 return False
-            
-            amount = self.calculate_position_size(symbol)
-            if amount <= 0:
-                return False
-            
-            # Установка плеча для фьючерсов
-            if ":USDT" in symbol and leverage > 1:
-                try:
-                    self.safe_api_call(self.exchange.set_leverage, leverage, symbol)
-                except:
-                    pass
-            
-            # Открытие ордера
-            order = self.safe_api_call(
-                self.exchange.create_order,
-                symbol,
-                'market',
-                side,
-                amount
-            )
-            
-            if order:
-                self.positions[symbol] = {
-                    'side': side,
-                    'entry_price': order['price'],
-                    'amount': amount,
-                    'timestamp': datetime.now(),
-                    'leverage': leverage
-                }
-                
-                self.send_telegram(
-                    f"🎯 **НОВАЯ ПОЗИЦИЯ**\n"
-                    f"#{symbol.replace('/', '')}\n"
-                    f"📈 Направление: {side.upper()}\n"
-                    f"💰 Размер: ${ORDER_AMOUNT_USD}\n"
-                    f"⚙️ Плечо: {leverage}x\n"
-                    f"⏰ Время: {datetime.now().strftime('%H:%M:%S')}"
-                )
-                
-                return True
-            
-        except Exception as e:
-            self.log(f"❌ Ошибка открытия позиции {symbol}: {e}", "ERROR")
         
-        return False
+        self.signal_history[key] = datetime.now()
+        return True
     
-    def check_futures_signals(self):
-        """Проверка сигналов для фьючерсов"""
-        if len(self.positions) >= MAX_POSITIONS:
-            return
+    def analyze_futures(self):
+        """Анализ фьючерсных пар"""
+        self.log("--- 🔍 АНАЛИЗ ФЬЮЧЕРСОВ (Long/Short) ---")
         
-        self.log("--- 🔍 СКАНИРОВАНИЕ ФЬЮЧЕРСОВ ---")
+        signals_found = 0
         
-        for symbol, config in FUTURES_SYMBOLS.items():
-            time.sleep(1)
+        for symbol, config in self.futures_symbols.items():
+            time.sleep(1)  # Пауза между запросами
             
             try:
-                # Пропускаем, если уже есть позиция
-                if symbol in self.positions:
-                    continue
-                
                 # Получаем данные
-                timeframes = config.get("timeframes", ["1h", "30m", "15m"])
-                data = self.get_multi_timeframe_data(symbol, timeframes)
-                
-                if not data:
+                df = self.get_candles(symbol, ANALYSIS_TIMEFRAME, 100)
+                if df is None:
                     continue
                 
-                # Анализируем тренд
-                trend, score = self.analyze_trend_multi_tf(data)
-                
-                # Получаем данные для входа (15m)
-                tf_data = data.get("15m") or data.get(list(data.keys())[-1])
-                if tf_data is None or tf_data.empty:
+                # Расчет индикаторов
+                df = self.calculate_indicators(df)
+                if df is None:
                     continue
                 
-                curr = tf_data.iloc[-1]
+                # Текущие значения
+                curr = df.iloc[-1]
                 price = curr['close']
-                rsi = curr.get('rsi', 50)
-                adx = curr.get('adx', 25)
+                rsi = curr['rsi'] if 'rsi' in curr else 50
+                adx = curr['adx'] if 'adx' in curr else 25
+                ema9 = curr['ema9'] if 'ema9' in curr else price
+                ema21 = curr['ema21'] if 'ema21' in curr else price
                 
-                # Логика для LONG
-                if trend in ["bullish", "strong_bullish"] and score > 0.2:
-                    if 40 < rsi < 65 and adx > 20:
-                        
-                        # AI анализ
-                        ai_result = self.ask_ai_analysis(
-                            symbol, {}, price,
-                            {"rsi": round(rsi, 1), "adx": round(adx, 1), "trend": trend}
-                        )
-                        
-                        if ai_result.get("verdict") == "YES":
-                            self.log(f"✅ LONG сигнал для {symbol}, уверенность AI: {ai_result.get('confidence')}/10")
-                            self.open_position(symbol, "buy", config["lev"])
+                signal = None
+                signal_type = ""
+                trend_info = ""
                 
-                # Логика для SHORT
-                elif trend in ["bearish", "strong_bearish"] and score < -0.2:
-                    if 35 < rsi < 60 and adx > 20:
-                        
-                        ai_result = self.ask_ai_analysis(
-                            symbol, {}, price,
-                            {"rsi": round(rsi, 1), "adx": round(adx, 1), "trend": trend}
-                        )
-                        
-                        if ai_result.get("verdict") == "YES":
-                            self.log(f"✅ SHORT сигнал для {symbol}, уверенность AI: {ai_result.get('confidence')}/10")
-                            self.open_position(symbol, "sell", config["lev"])
-                            
+                # 📈 LONG сигнал
+                if ema9 > ema21 and 40 < rsi < 65 and adx > 20:
+                    signal = "BUY"
+                    signal_type = "LONG_SIGNAL"
+                    trend_info = f"- Тренд: EMA9 ({ema9:.2f}) > EMA21 ({ema21:.2f}) - восходящий"
+                
+                # 📉 SHORT сигнал  
+                elif ema9 < ema21 and 35 < rsi < 60 and adx > 20:
+                    signal = "SELL"
+                    signal_type = "SHORT_SIGNAL"
+                    trend_info = f"- Тренд: EMA9 ({ema9:.2f}) < EMA21 ({ema21:.2f}) - нисходящий"
+                
+                # Если есть сигнал
+                if signal and self.check_signal_cooldown(symbol, signal_type):
+                    
+                    # 🔍 AI анализ
+                    ai_response = self.ask_ai_analysis(
+                        symbol, price, round(rsi, 1), round(adx, 1), signal_type, trend_info
+                    )
+                    
+                    # Отправляем сигнал в Telegram
+                    self.send_signal_to_telegram(
+                        symbol=symbol,
+                        signal_type=signal,
+                        signal_name=signal_type,
+                        price=price,
+                        rsi=rsi,
+                        adx=adx,
+                        ai_analysis=ai_response,
+                        timeframe=ANALYSIS_TIMEFRAME,
+                        leverage=config["lev"]
+                    )
+                    
+                    signals_found += 1
+                    self.log(f"✅ Найден сигнал {signal} для {symbol}")
+            
             except Exception as e:
                 self.log(f"❌ Ошибка анализа {symbol}: {e}", "ERROR")
-    
-    def check_spot_signals(self):
-        """Проверка сигналов для спота"""
-        self.log("--- 🏦 СКАНИРОВАНИЕ СПОТА ---")
         
-        for symbol, config in SPOT_SYMBOLS.items():
+        return signals_found
+    
+    def analyze_spot(self):
+        """Анализ спотовых пар"""
+        self.log("--- 🏦 АНАЛИЗ СПОТОВЫХ ПАР (4H) ---")
+        
+        signals_found = 0
+        
+        for symbol, config in self.spot_symbols.items():
             time.sleep(1)
             
             try:
-                # Получаем данные
-                tf_data = self.get_candles(symbol, "4h", 50)
-                if tf_data is None or tf_data.empty:
+                # Для спота используем 4H таймфрейм
+                df = self.get_candles(symbol, "4H", 50)
+                if df is None:
                     continue
                 
                 # Расчет RSI
-                rsi_series = ta.rsi(tf_data['close'], length=14)
-                if rsi_series is None or rsi_series.empty:
-                    continue
+                df['rsi'] = ta.rsi(df['close'], length=14)
                 
-                rsi = rsi_series.iloc[-1]
-                price = tf_data['close'].iloc[-1]
+                curr = df.iloc[-1]
+                price = curr['close']
+                rsi = curr['rsi'] if 'rsi' in curr else 50
                 
-                # BUY сигнал
-                if rsi < 30 and symbol not in self.spot_signals:
-                    self.spot_signals[symbol] = {
-                        "type": "BUY",
-                        "price": price,
-                        "timestamp": datetime.now(),
-                        "rsi": rsi
-                    }
+                signal = None
+                signal_type = ""
+                
+                # 💎 BUY сигнал (перепроданность)
+                if rsi < 30:
+                    signal = "BUY"
+                    signal_type = "SPOT_BUY_DIP"
+                
+                # 💰 SELL сигнал (перекупленность)
+                elif rsi > 75:
+                    signal = "SELL"
+                    signal_type = "SPOT_TAKE_PROFIT"
+                
+                # Если есть сигнал
+                if signal and self.check_signal_cooldown(symbol, signal_type):
                     
-                    self.send_telegram(
-                        f"💎 **SPOT BUY SIGNAL**\n"
-                        f"#{symbol.replace('/', '')}\n"
-                        f"📉 RSI: {rsi:.1f} (перепроданность)\n"
-                        f"💰 Цена: ${price:.2f}"
+                    # 🔍 AI анализ
+                    ai_response = self.ask_ai_analysis(
+                        symbol, price, round(rsi, 1), 25, signal_type, 
+                        f"- RSI: {rsi:.1f} ({'сильная перепроданность' if rsi < 30 else 'сильная перекупленность'})"
                     )
-                
-                # SELL сигнал
-                elif rsi > 75 and symbol in self.spot_signals:
-                    entry = self.spot_signals[symbol]
-                    profit_pct = ((price - entry["price"]) / entry["price"]) * 100
                     
-                    if profit_pct > 5:
-                        self.send_telegram(
-                            f"💰 **SPOT TAKE PROFIT**\n"
-                            f"#{symbol.replace('/', '')}\n"
-                            f"📈 RSI: {rsi:.1f} (перекупленность)\n"
-                            f"💰 Цена: ${price:.2f}\n"
-                            f"📊 Прибыль: {profit_pct:.1f}%"
-                        )
-                        del self.spot_signals[symbol]
-                        
+                    # Отправляем сигнал
+                    self.send_signal_to_telegram(
+                        symbol=symbol,
+                        signal_type=signal,
+                        signal_name=signal_type,
+                        price=price,
+                        rsi=rsi,
+                        adx=25,
+                        ai_analysis=ai_response,
+                        timeframe="4H",
+                        leverage=1
+                    )
+                    
+                    signals_found += 1
+                    self.log(f"✅ Найден спот сигнал {signal} для {symbol}")
+            
             except Exception as e:
                 self.log(f"❌ Ошибка спот анализа {symbol}: {e}", "ERROR")
-    
-    def monitor_positions(self):
-        """Мониторинг открытых позиций"""
-        if not self.positions:
-            return
         
-        current_time = datetime.now()
-        
-        for symbol, pos in list(self.positions.items()):
-            try:
-                # Проверяем время удержания позиции
-                hold_time = (current_time - pos['timestamp']).total_seconds()
-                
-                # Закрываем позицию через 30 минут
-                if hold_time > 1800:  # 30 минут
-                    self.close_position(symbol, "Таймаут 30 мин", 0)
-                    continue
-                
-                # Получаем текущую цену
-                ticker = self.safe_api_call(self.exchange.fetch_ticker, symbol)
-                if not ticker:
-                    continue
-                
-                current_price = ticker['last']
-                entry_price = pos['entry_price']
-                
-                # Расчет PnL
-                if pos['side'] == "buy":
-                    pnl_pct = ((current_price - entry_price) / entry_price) * 100
-                else:  # sell/short
-                    pnl_pct = ((entry_price - current_price) / entry_price) * 100
-                
-                # Автоматический тейк-профит
-                if pnl_pct >= TAKE_PROFIT_PERCENT:
-                    self.close_position(symbol, f"Тейк-профит {pnl_pct:.1f}%", pnl_pct)
-                # Автоматический стоп-лосс
-                elif pnl_pct <= -STOP_LOSS_PERCENT:
-                    self.close_position(symbol, f"Стоп-лосс {pnl_pct:.1f}%", pnl_pct)
-                    
-            except Exception as e:
-                self.log(f"❌ Ошибка мониторинга {symbol}: {e}", "ERROR")
+        return signals_found
     
-    def close_position(self, symbol, reason, pnl_pct):
-        """Закрытие позиции"""
-        try:
-            pos = self.positions.get(symbol)
-            if not pos:
-                return
-            
-            # Определяем сторону для закрытия
-            close_side = "sell" if pos['side'] == "buy" else "buy"
-            
-            # Закрываем позицию
-            order = self.safe_api_call(
-                self.exchange.create_order,
-                symbol,
-                'market',
-                close_side,
-                pos['amount']
-            )
-            
-            if order:
-                # Обновляем PnL
-                self.daily_pnl += pnl_pct
-                
-                # Уведомление
-                emoji = "✅" if pnl_pct > 0 else "❌"
-                self.send_telegram(
-                    f"{emoji} **ПОЗИЦИЯ ЗАКРЫТА**\n"
-                    f"#{symbol.replace('/', '')}\n"
-                    f"📊 Причина: {reason}\n"
-                    f"💰 PnL: {pnl_pct:.2f}%\n"
-                    f"📈 Дневной PnL: {self.daily_pnl:.2f}%"
-                )
-                
-                # Удаляем позицию
-                del self.positions[symbol]
-                self.log(f"📤 Закрыта позиция {symbol}: {reason}, PnL: {pnl_pct:.2f}%")
-                
-        except Exception as e:
-            self.log(f"❌ Ошибка закрытия позиции {symbol}: {e}", "ERROR")
-    
-    def send_telegram(self, message):
-        """Отправка сообщения в Telegram"""
+    def send_signal_to_telegram(self, symbol, signal_type, signal_name, price, rsi, adx, ai_analysis, timeframe, leverage=1):
+        """Отправка сигнала в Telegram"""
         if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+            self.log("⚠️ Telegram ключи не заданы, пропускаем уведомление")
             return
         
         try:
             import requests
+            
+            # Эмодзи для сигналов
+            emoji = "🟢" if signal_type == "BUY" else "🔴"
+            action = "ПОКУПКА/LONG" if signal_type == "BUY" else "ПРОДАЖА/SHORT"
+            
+            # Форматируем AI анализ
+            ai_lines = ai_analysis.split('\n')
+            ai_formatted = ""
+            for line in ai_lines:
+                if 'Вердикт:' in line:
+                    ai_formatted += f"🎯 *{line.strip()}*\n"
+                elif 'Уверенность:' in line:
+                    ai_formatted += f"📊 {line.strip()}\n"
+                elif 'Объяснение:' in line:
+                    ai_formatted += f"💡 {line.strip().replace('Объяснение:', '')}\n"
+                else:
+                    ai_formatted += f"{line.strip()}\n"
+            
+            # Создаем сообщение
+            message = f"""
+{emoji} *{action} СИГНАЛ*
+
+📊 *Пара:* #{symbol.replace('/', '').replace(':USDT', '')}
+⏰ *Таймфрейм:* {timeframe}
+💰 *Цена:* ${price:.4f}
+📈 *RSI:* {rsi:.1f}
+📊 *ADX:* {adx:.1f}
+⚡ *Сигнал:* {signal_name}
+
+🤖 *AI АНАЛИЗ:*
+{ai_formatted}
+
+📌 *Рекомендации:*
+- Используйте лимитные ордера
+- Всегда ставьте стоп-лосс
+- Рискуйте не более 1-2% от депозита
+"""
+            if leverage > 1:
+                message += f"⚙️ *Плечо:* {leverage}x (опционально)\n"
+            
+            message += f"\n⏰ *Время сигнала:* {datetime.now().strftime('%H:%M:%S')}"
+            
+            # Отправляем в Telegram
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
             payload = {
                 "chat_id": TELEGRAM_CHAT_ID,
                 "text": message,
-                "parse_mode": "Markdown"
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
             }
             
-            requests.post(url, json=payload, timeout=10)
+            response = requests.post(url, json=payload, timeout=10)
+            
+            if response.status_code == 200:
+                self.log(f"✅ Сигнал отправлен в Telegram: {symbol} {signal_type}")
+            else:
+                self.log(f"⚠️ Ошибка отправки в Telegram: {response.text}", "WARNING")
                 
         except Exception as e:
-            self.log(f"⚠️ Не удалось отправить в Telegram: {e}", "WARNING")
+            self.log(f"❌ Ошибка отправки Telegram: {e}", "ERROR")
     
-    def run_cycle(self):
+    def run_analysis_cycle(self):
         """Запуск одного цикла анализа"""
+        self.log(f"\n{'='*60}")
+        self.log(f"🔍 НАЧАЛО АНАЛИЗА: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        self.log(f"{'='*60}")
+        
+        total_signals = 0
+        
         try:
-            # Мониторинг текущих позиций
-            self.monitor_positions()
+            # Анализ фьючерсов
+            futures_signals = self.analyze_futures()
+            total_signals += futures_signals
             
-            # Проверка новых сигналов
-            self.check_futures_signals()
-            self.check_spot_signals()
+            # Анализ спота
+            spot_signals = self.analyze_spot()
+            total_signals += spot_signals
             
-            # Отчет о состоянии
-            self.print_status()
+            # Статистика
+            self.log(f"\n📊 ИТОГИ ЦИКЛА:")
+            self.log(f"   Фьючерсных сигналов: {futures_signals}")
+            self.log(f"   Спотовых сигналов: {spot_signals}")
+            self.log(f"   Всего сигналов: {total_signals}")
+            
+            if total_signals == 0:
+                self.log("   ℹ️ Сигналов не найдено")
+            
+            self.log(f"{'='*60}")
             
         except Exception as e:
-            self.log(f"❌ Критическая ошибка в цикле: {e}", "ERROR")
+            self.log(f"💥 Критическая ошибка в цикле анализа: {e}", "ERROR")
         
-        # Время до следующего цикла
-        return 60
+        return total_signals
     
     def print_status(self):
         """Вывод статуса системы"""
         status = f"""
 {'='*50}
-📊 СТАТУС ТОРГОВОГО АГЕНТА
+🤖 АНАЛИТИЧЕСКИЙ АГЕНТ - ТОЛЬКО СИГНАЛЫ
 {'='*50}
 ⏰ Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-⏳ Работает: {str(datetime.now() - self.start_time).split('.')[0]}
-💰 Открыто позиций: {len(self.positions)}/{MAX_POSITIONS}
-📈 Дневной PnL: {self.daily_pnl:.2f}%
-📡 Запросов API: {self.api_request_count}
+⏳ Следующий анализ через: {ANALYSIS_TIMEFRAME}
+📊 Анализируем пар: {len(self.futures_symbols)} фьюч., {len(self.spot_symbols)} спот
+🔔 Задержка сигналов: {SIGNAL_COOLDOWN_MINUTES} мин
+🤖 AI анализ: {'✅ ВКЛ' if self.ai_client else '❌ ВЫКЛ'}
 {'='*50}
 """
         print(status)
     
     def run(self):
         """Главный цикл работы бота"""
-        self.log("🚀 ЗАПУСК ТОРГОВОГО АГЕНТА")
-        self.send_telegram("🤖 *Торговый агент запущен*")
+        self.log("🚀 ЗАПУСК АНАЛИТИЧЕСКОГО АГЕНТА (ТОЛЬКО СИГНАЛЫ)")
+        
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+            try:
+                self.send_signal_to_telegram(
+                    symbol="SYSTEM",
+                    signal_type="INFO",
+                    signal_name="BOT_STARTED",
+                    price=0,
+                    rsi=50,
+                    adx=25,
+                    ai_analysis="🤖 Бот аналитики запущен\nВердикт: SYSTEM_READY\nУверенность: 10/10\nОбъяснение: Аналитический агент начал работу",
+                    timeframe="SYSTEM",
+                    leverage=1
+                )
+            except:
+                pass
         
         try:
+            cycle_count = 0
+            
             while True:
-                sleep_time = self.run_cycle()
+                cycle_count += 1
+                self.print_status()
+                
+                # Запускаем анализ
+                signals_found = self.run_analysis_cycle()
+                
+                # Определяем время до следующего анализа
+                if ANALYSIS_TIMEFRAME == "15m":
+                    sleep_time = 60 * 15  # 15 минут
+                elif ANALYSIS_TIMEFRAME == "1h":
+                    sleep_time = 60 * 60  # 1 час
+                elif ANALYSIS_TIMEFRAME == "4H":
+                    sleep_time = 60 * 60 * 4  # 4 часа
+                else:
+                    sleep_time = 60 * 5  # 5 минут по умолчанию
+                
+                # Выводим информацию о следующем анализе
+                next_time = datetime.now().timestamp() + sleep_time
+                next_str = datetime.fromtimestamp(next_time).strftime('%H:%M:%S')
+                self.log(f"⏰ Следующий анализ в {next_str} (через {sleep_time//60} мин)")
+                
+                # Ждем до следующего анализа
                 time.sleep(sleep_time)
                 
         except KeyboardInterrupt:
             self.log("🛑 Остановка по команде пользователя")
-            self.send_telegram("🛑 *Торговый агент остановлен*")
+            
+            if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+                try:
+                    self.send_signal_to_telegram(
+                        symbol="SYSTEM",
+                        signal_type="INFO",
+                        signal_name="BOT_STOPPED",
+                        price=0,
+                        rsi=50,
+                        adx=25,
+                        ai_analysis="🛑 Бот аналитики остановлен\nВердикт: SYSTEM_STOPPED\nУверенность: 10/10\nОбъяснение: Аналитический агент завершил работу",
+                        timeframe="SYSTEM",
+                        leverage=1
+                    )
+                except:
+                    pass
             
         except Exception as e:
             self.log(f"💥 Критическая ошибка: {e}", "CRITICAL")
-            self.send_telegram(f"💥 *Критическая ошибка:* {str(e)[:100]}")
 
 # --- 🚀 ЗАПУСК ПРОГРАММЫ ---
 if __name__ == "__main__":
-    # Проверка обязательных переменных
-    required_vars = ["OKX_API_KEY", "OKX_API_SECRET", "OKX_PASSWORD"]
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
-    
-    if missing_vars:
-        print(f"❌ Отсутствуют переменные окружения: {', '.join(missing_vars)}")
-        exit(1)
+    print("\n" + "="*60)
+    print("🤖 АНАЛИТИЧЕСКИЙ АГЕНТ - ТОЛЬКО СИГНАЛЫ")
+    print("="*60)
+    print("📊 Функции:")
+    print("  ✅ Анализ рынка с индикаторами")
+    print("  ✅ AI анализ сигналов (DeepSeek)")
+    print("  ✅ Уведомления в Telegram")
+    print("  ❌ Автоторговля ОТКЛЮЧЕНА")
+    print("="*60)
     
     # Создание и запуск агента
     try:
