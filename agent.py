@@ -52,7 +52,8 @@ class TradingAgent:
     def __init__(self, bot_token, chat_id, openai_key):
         self.bot_token = bot_token
         self.chat_id = chat_id
-        self.client = OpenAI(api_key=openai_key)
+        # 🔥 ИЗМЕНЕНИЕ 1: Добавлен base_url для DeepSeek
+        self.client = OpenAI(api_key=openai_key, base_url="https://api.deepseek.com")
         self.positions = {name: None for name in FUTURES_SYMBOLS}
         self.spot_positions = {name: None for name in SPOT_SYMBOLS}
 
@@ -84,7 +85,6 @@ class TradingAgent:
             strategy_name = "INVESTOR (Buy the Dip)"
             system_prompt = "Ты Инвестор. Твоя цель — накопление фундаментальных активов на просадках. Ищи перепроданность."
         else:
-            # Логика переключения для Фьючерсов
             if adx < 25:
                 strategy_name = "🛡️ SNIPER (Conservative)"
                 system_prompt = """
@@ -132,17 +132,20 @@ class TradingAgent:
         for i in range(2):
             try:
                 response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    # 🔥 ИЗМЕНЕНИЕ 2: Модель заменена на deepseek-chat
+                    model="deepseek-chat",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
                     max_tokens=100
                 )
-                # Возвращаем вердикт + имя стратегии для логов
                 return response.choices[0].message.content, strategy_name
             except Exception as e:
-                if "429" in str(e): time.sleep(2); continue
+                # DeepSeek может иногда выдавать 500-е ошибки при перегрузке, обработка осталась
+                if "429" in str(e) or "500" in str(e) or "502" in str(e): 
+                    time.sleep(2); continue
+                print(f"AI Error: {e}")
                 return "AI Error", strategy_name
         return "Skip", strategy_name
 
@@ -170,8 +173,6 @@ class TradingAgent:
             curr = df.iloc[-2]
             adx_val = curr["adx"]
 
-            # Базовый тех. сигнал (Cross)
-            # В "MOMENTUM" режиме мы допускаем более высокий RSI для входа
             rsi_limit = 75 if adx_val > 40 else 70
 
             signal = None
@@ -182,13 +183,11 @@ class TradingAgent:
 
             if signal and self.positions[name] != signal:
                 
-                # Фильтр 1D
                 d_df = self.get_candles(symbol, "1D", limit=50)
                 if d_df is not None:
                     ema20_d = ta.ema(d_df["c"], length=20).iloc[-1]
                     if curr["c"] < ema20_d: continue 
 
-                # AI Check (Dynamic)
                 ai_verdict, strategy_used = self.ask_ai("FUTURES", name, curr["c"], round(curr["rsi"],1), round(adx_val,1), "UP (15m)")
                 
                 if "WAIT" in ai_verdict.upper(): continue
@@ -231,7 +230,6 @@ class TradingAgent:
                 setup = "Oversold Bounce"
 
             if is_dip and self.spot_positions[name] != "BUY":
-                # Для спота ADX не так важен, передаем 0
                 ai_verdict, strategy_used = self.ask_ai("SPOT", name, price, round(rsi,1), 0, setup)
                 
                 self.send(
