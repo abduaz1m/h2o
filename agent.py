@@ -1,3 +1,4 @@
+import os
 import ccxt
 import time
 import pandas as pd
@@ -5,58 +6,86 @@ import pandas_ta as ta
 from datetime import datetime
 from openai import OpenAI
 
-API_KEY = "a1af4b19-b6c9-45d3-ae8f-e11247c6f222"
+# --- 🔐 НАСТРОЙКИ API OKX ---
+API_KEY = "a1af4b19-b6c9-45d3-ae8f-e11247c6f222Y"
 API_SECRET = "9E00FB5D0EA222DD54488B768AD20580"
 API_PASSWORD = "Abduxalilov022$"
 
 # ⚙️ РЕЖИМ РАБОТЫ
-# True = Демо счет (деньги не тратятся)
-# False = Реальные деньги!
+# False = Торгуем реальными деньгами
+# True = Тестовый режим
 SANDBOX_MODE = False  
 
-# Настройки торговли
-MAX_POSITIONS = 10     # Максимум сделок одновременно
-ORDER_AMOUNT_USD = 100000 # Размер входа в сделку в $
+# Настройки
+MAX_POSITIONS = 10     # Максимум сделок
+ORDER_AMOUNT_USD = 100000 # Размер входа ($)
 
-# СПИСОК МОНЕТ (Фьючерсы)
+# 🚜 ФЬЮЧЕРСЫ (Торгуем Long и Short)
 FUTURES_SYMBOLS = {
-    "BTC/USDT:USDT": {"lev": 10},
-    "ETH/USDT:USDT": {"lev": 10},
-    "SOL/USDT:USDT": {"lev": 10},
-    "TON/USDT:USDT": {"lev": 5},
-    "ARB/USDT:USDT": {"lev": 5},
-    "DOGE/USDT:USDT": {"lev": 5},
-    "PEPE/USDT:USDT": {"lev": 3},
+    "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 10},
+    "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 10},
+    "SOL":    {"id": "SOL-USDT-SWAP",    "lev": 10},
+    "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 10},
+    "LTC":    {"id": "LTC-USDT-SWAP",    "lev": 10},
+    "XRP":    {"id": "XRP-USDT-SWAP",    "lev": 10},
+
+
+
+    # 🏗 L1 (Lev 7x)
+    "TON":    {"id": "TON-USDT-SWAP",    "lev": 7},
+    "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 7},
+    "SUI":    {"id": "SUI-USDT-SWAP",    "lev": 7},
+    "APT":    {"id": "APT-USDT-SWAP",    "lev": 7},
+
+    # 🔗 DEFI (Lev 7x)
+    "LINK":   {"id": "LINK-USDT-SWAP",   "lev": 7},
+    "ARB":    {"id": "ARB-USDT-SWAP",    "lev": 7},
+    "OP":     {"id": "OP-USDT-SWAP",     "lev": 7},
+    "TIA":    {"id": "TIA-USDT-SWAP",    "lev": 7},
+
+    # 🤖 AI & MEME (Lev 3x-5x)
+    "FET":    {"id": "FET-USDT-SWAP",    "lev": 5},
+    "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 5},
+    "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3},
+    "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3},
+    "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
+    "STRK":   {"id": "STRK-USDT-SWAP",    "lev": 3},
 }
+
+# 🏦 СПОТ (Только сигналы Buy/Sell для инвестиций)
+SPOT_SYMBOLS = [
+    "BTC/USDT", "ETH/USDT", "SOL/USDT", "TON/USDT"
+]
 
 class TradingAgent:
     def __init__(self, bot_token, chat_id, deepseek_key):
         self.bot_token = bot_token
         self.chat_id = chat_id
         
-        # 👇 ИЗМЕНЕНИЕ 1: Подключение к DeepSeek
+        # DeepSeek через клиент OpenAI
         self.client = OpenAI(
             api_key=deepseek_key, 
-            base_url="https://api.deepseek.com" # Указываем адрес DeepSeek
+            base_url="https://api.deepseek.com"
         )
         
-        # Подключение к бирже OKX
+        # Подключение к OKX
         try:
             self.exchange = ccxt.okx({
                 'apiKey': API_KEY,
                 'secret': API_SECRET,
                 'password': API_PASSWORD,
                 'enableRateLimit': True,
-                'options': {'defaultType': 'swap'} # Фьючерсы
+                'options': {'defaultType': 'swap'} 
             })
             if SANDBOX_MODE:
                 self.exchange.set_sandbox_mode(True)
         except Exception as e:
-            print(f"❌ Ошибка подключения к бирже: {e}")
+            print(f"❌ Connect Error: {e}")
 
+        # Память позиций
         self.positions = {name: None for name in FUTURES_SYMBOLS}
+        self.spot_status = {name: None for name in SPOT_SYMBOLS}
 
-    # --- ТЕЛЕГРАМ ---
     def send(self, text):
         import requests
         try:
@@ -66,119 +95,154 @@ class TradingAgent:
             )
         except: pass
 
-    # --- БИРЖА: ДАННЫЕ ---
-    def get_candles(self, symbol, limit=100):
+    # --- РАБОТА С БИРЖЕЙ ---
+    def get_candles(self, symbol, timeframe='15m', limit=100):
         try:
-            ohlcv = self.exchange.fetch_ohlcv(symbol, '15m', limit=limit)
+            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
             df = pd.DataFrame(ohlcv, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
             return df
-        except Exception as e:
-            return None
+        except: return None
 
-    # --- БИРЖА: ОРДЕРА ---
     def open_order(self, symbol, side, leverage):
         try:
-            # 1. Ставим плечо
-            try:
-                self.exchange.set_leverage(leverage, symbol)
-            except: pass # Иногда плечо уже стоит
-
-            # 2. Считаем объем (Сколько монет купить на 50$)
+            # Плечо
+            try: self.exchange.set_leverage(leverage, symbol)
+            except: pass
+            
+            # Объем
             ticker = self.exchange.fetch_ticker(symbol)
             price = ticker['last']
             amount = ORDER_AMOUNT_USD / price 
             
-            # 3. Открываем (Market Order)
+            # Ордер
             order = self.exchange.create_order(symbol, 'market', side, amount)
             return True, order['id']
         except Exception as e:
             return False, str(e)
 
-    # --- 🧠 DEEPSEEK АНАЛИЗ ---
-    def ask_ai(self, symbol, price, rsi, adx):
-        print(f"🧠 Asking DeepSeek about {symbol}...")
+    # --- 🧠 DEEPSEEK АНАЛИЗ (LONG & SHORT) ---
+    def ask_ai(self, symbol, price, rsi, adx, signal_type):
+        print(f"🧠 Asking DeepSeek about {symbol} ({signal_type})...")
         
-        # Промпт адаптирован под DeepSeek (он любит четкость)
         prompt = f"""
-        Ты профессиональный трейдер.
-        Актив: {symbol}
-        Цена: {price}
-        RSI (14): {rsi}
-        ADX (14): {adx}
+        Ты трейдер. Актив: {symbol}, Цена: {price}.
+        Технический сигнал: {signal_type}.
+        RSI: {rsi}, ADX: {adx}.
         
-        Стратегия: Вход только по тренду.
-        1. Если ADX < 20, рынок спит -> WAIT.
-        2. Если RSI > 70, перекуплен -> WAIT.
-        3. Если RSI 50-70 и ADX > 25 -> BUY.
+        ПРАВИЛА:
+        1. Если сигнал BUY: Подтверди, если тренд вверх и RSI < 70.
+        2. Если сигнал SELL: Подтверди, если тренд вниз и RSI > 30.
+        3. Если ADX < 20 (флэт) -> WAIT.
         
-        Дай ответ в формате JSON:
+        Верни JSON:
         Risk: [1-10]/10
-        Verdict: [BUY / WAIT]
-        Reason: [Коротко]
+        Verdict: [YES / NO]
+        Reason: [Кратко]
         """
 
         for i in range(2):
             try:
                 response = self.client.chat.completions.create(
-                    model="deepseek-chat", # 👇 ИЗМЕНЕНИЕ 2: Модель DeepSeek
+                    model="deepseek-chat",
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=100,
-                    temperature=0.0 # Делаем ответы строгими
+                    temperature=0.0
                 )
                 return response.choices[0].message.content
-            except Exception as e:
-                time.sleep(1)
+            except: time.sleep(1)
         return "Skip"
 
-    # --- ГЛАВНЫЙ ЦИКЛ ---
-    def analyze(self):
-        print(f"--- 🐋 DeepSeek Trader ({'DEMO' if SANDBOX_MODE else 'REAL'}) ---")
+    # --- АНАЛИЗ ФЬЮЧЕРСОВ (15m) ---
+    def check_futures(self):
+        print(f"--- 🚀 Checking Futures (Long/Short) ---")
         
         for symbol, info in FUTURES_SYMBOLS.items():
             lev = info["lev"]
-            time.sleep(1) # Лимиты биржи
+            time.sleep(1)
 
-            df = self.get_candles(symbol)
+            df = self.get_candles(symbol, '15m')
             if df is None: continue
 
-            # Индикаторы
             df['ema9'] = ta.ema(df['c'], length=9)
             df['ema21'] = ta.ema(df['c'], length=21)
             df['rsi'] = ta.rsi(df['c'], length=14)
             df['adx'] = ta.adx(df['h'], df['l'], df['c'])['ADX_14']
             
             curr = df.iloc[-1]
+            rsi = curr['rsi']
+            adx = curr['adx']
 
-            # 1. Технический фильтр (Python)
-            # Пересечение EMA + Хороший RSI + Есть тренд
-            tech_signal = False
-            if (curr['ema9'] > curr['ema21'] and 
-                50 < curr['rsi'] < 70 and 
-                curr['adx'] > 25):
-                tech_signal = True
+            signal = None
+            side = None
 
-            # Если есть тех. сигнал и мы не в позиции
-            if tech_signal and self.positions[symbol] != "BUY":
+            # ✅ ЛОГИКА LONG (Покупка)
+            if (curr['ema9'] > curr['ema21'] and 50 < rsi < 70 and adx > 25):
+                signal = "LONG_SIGNAL"
+                side = "buy"
+
+            # 🔻 ЛОГИКА SHORT (Продажа/Шорт)
+            elif (curr['ema9'] < curr['ema21'] and 30 < rsi < 50 and adx > 25):
+                signal = "SHORT_SIGNAL"
+                side = "sell"
+
+            # Если есть сигнал и мы не в позиции
+            if signal and self.positions[symbol] != side:
                 
-                # 2. Мнение DeepSeek
-                ai_verdict = self.ask_ai(symbol, curr['c'], round(curr['rsi'],1), round(curr['adx'],1))
+                # Спрашиваем DeepSeek
+                ai_verdict = self.ask_ai(symbol, curr['c'], round(rsi,1), round(adx,1), signal)
                 
-                if "WAIT" in ai_verdict.upper():
-                    print(f"🚫 DeepSeek отменил вход по {symbol}: {ai_verdict}")
+                if "NO" in ai_verdict.upper():
+                    print(f"✋ AI отменил {signal} по {symbol}")
                     continue
 
-                # 3. Вход в сделку
-                print(f"🚀 Входим в {symbol}!")
-                success, msg = self.open_order(symbol, 'buy', lev)
+                # Открываем сделку
+                print(f"⚡ Executing {side.upper()} {symbol}...")
+                success, msg = self.open_order(symbol, side, lev)
                 
                 if success:
+                    icon = "🟢" if side == "buy" else "🔴"
                     self.send(
-                        f"🐋 **DEEPSEEK SIGNAL**\n"
-                        f"#{symbol} — BUY OPEN\n"
+                        f"{icon} **FUTURES ACTION**\n"
+                        f"#{symbol} — {side.upper()}\n"
                         f"💰 Amount: ${ORDER_AMOUNT_USD}\n"
                         f"⚙️ Lev: {lev}x\n"
                         f"🧠 AI: {ai_verdict}"
                     )
-                    self.positions[symbol] = "BUY"
+                    self.positions[symbol] = side
                 else:
-                    self.send(f"⚠️ Ошибка ордера {symbol}: {msg}")
+                    self.send(f"⚠️ Order Error {symbol}: {msg}")
+
+    # --- АНАЛИЗ СПОТА (4H) ---
+    def check_spot(self):
+        print(f"--- 🏦 Checking Spot (Signals) ---")
+        
+        for symbol in SPOT_SYMBOLS:
+            time.sleep(1)
+            df = self.get_candles(symbol, '4H', limit=50) # Таймфрейм 4 часа
+            if df is None: continue
+
+            curr = df.iloc[-1]
+            rsi = ta.rsi(df['c'], length=14).iloc[-1]
+            
+            # 🔵 СИГНАЛ НА ПОКУПКУ (Buy the Dip)
+            if rsi < 35 and self.spot_status[symbol] != "BUY":
+                self.send(
+                    f"💎 **SPOT BUY SIGNAL**\n#{symbol}\n"
+                    f"📉 RSI is LOW ({round(rsi,1)}) - Good entry!\n"
+                    f"💰 Price: {curr['c']}"
+                )
+                self.spot_status[symbol] = "BUY"
+            
+            # 🟠 СИГНАЛ НА ПРОДАЖУ (Take Profit)
+            elif rsi > 75 and self.spot_status[symbol] != "SELL":
+                self.send(
+                    f"💰 **SPOT SELL SIGNAL**\n#{symbol}\n"
+                    f"📈 RSI is HIGH ({round(rsi,1)}) - Consider Taking Profit!\n"
+                    f"💵 Price: {curr['c']}"
+                )
+                self.spot_status[symbol] = "SELL"
+
+    # --- ГЛАВНЫЙ МЕТОД ---
+    def analyze(self):
+        self.check_futures() # Торгует сам
+        self.check_spot()    # Шлет сигналы
