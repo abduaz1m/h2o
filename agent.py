@@ -19,7 +19,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 # --- ⚙️ НАСТРОЙКИ ТОРГОВЛИ ---
-SANDBOX_MODE = False  # True = тестовый режим, False = реальные деньги
+SANDBOX_MODE = True  # True = тестовый режим, False = реальные деньги
 
 # Параметры риска
 MAX_POSITIONS = 10
