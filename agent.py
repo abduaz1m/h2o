@@ -14,7 +14,6 @@ FUTURES_SYMBOLS = {
     "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 10},
     "SOL":    {"id": "SOL-USDT-SWAP",    "lev": 10},
     "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 10},
-    "MON":    {"id": "MON-USDT-SWAP",    "lev": 10},
     "TON":    {"id": "TON-USDT-SWAP",    "lev": 7},
     "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 7},
     "SUI":    {"id": "SUI-USDT-SWAP",    "lev": 7},
