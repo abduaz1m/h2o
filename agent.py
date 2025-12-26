@@ -46,7 +46,8 @@ class TradingAgent:
         # Подключение к DeepSeek
         self.client = OpenAI(api_key=openai_key, base_url="https://api.deepseek.com")
         self.positions = {name: None for name in FUTURES_SYMBOLS}
-        self.spot_positions = {name: None for name in SPOT_SYMBOLS}
+        # Используем словарь для хранения статусов по каждому таймфрейму (ключ: "SYMBOL_TF")
+        self.spot_positions = {} 
 
     def send(self, text):
         try:
@@ -70,27 +71,21 @@ class TradingAgent:
         except Exception:
             return None
 
-    # 🔥 AI МОЗГ: ОПЫТНЫЙ ТРЕЙДЕР (БЕЗ ЛИШНЕЙ ДИНАМИКИ)
+    # 🔥 AI МОЗГ: ОПЫТНЫЙ ТРЕЙДЕР
     def ask_ai(self, mode, symbol, price, rsi, adx, trend, extra_info=""):
         
-        # Единая стратегия для всех ситуаций
         strategy_name = "CRYPTO_VETERAN"
-
         print(f"🧠 Veteran Trader analyzing {symbol}...")
 
-        # Простой и понятный шаблон JSON
         json_template = '{"Risk": int, "Verdict": "BUY" or "WAIT", "Reason": "text"}'
         
-        # ПРОМПТ ОПЫТНОГО ТРЕЙДЕРА
         system_prompt = (
-            f"Ты — опытный крипто-трейдер с 10-летним стажем. Ты видел взлеты и падения, пампы и дампы.\n"
+            f"Ты — опытный крипто-трейдер с 10-летним стажем.\n"
             f"Твой подход: Прагматичный Price Action + Технический анализ.\n"
-            f"Твоя цель: Защитить депозит и забрать только верную прибыль.\n\n"
             f"ПРАВИЛА:\n"
             f"1. Не верь хайпу. Верь цифрам (RSI, ADX, Trend).\n"
-            f"2. Если RSI перегрет (>70) и тренд слабый — это риск. Лучше пропустить (WAIT).\n"
-            f"3. Если есть четкий сигнал и подтверждение тренда — заходи (BUY).\n"
-            f"4. Твой ответ должен быть кратким и четким, как выстрел.\n\n"
+            f"2. Если RSI перегрет (>70) и тренд слабый — это риск. WAIT.\n"
+            f"3. Если есть четкий сигнал на дне (RSI < 30) — заходи (BUY).\n"
             f"ФОРМАТ ОТВЕТА (СТРОГО JSON): {json_template}"
         )
 
@@ -99,10 +94,9 @@ class TradingAgent:
             f"Режим: {mode}\n"
             f"Цена: {price}\n"
             f"RSI (14): {rsi}\n"
-            f"ADX (Сила тренда): {adx}\n"
-            f"Текущий тренд: {trend}\n"
-            f"Доп. инфо: {extra_info}\n\n"
-            f"Каков твой вердикт, коллега?"
+            f"ADX: {adx}\n"
+            f"Тренд: {trend}\n"
+            f"Инфо: {extra_info}\n"
         )
 
         for i in range(2):
@@ -114,11 +108,10 @@ class TradingAgent:
                         {"role": "user", "content": user_prompt}
                     ],
                     max_tokens=200,
-                    temperature=0.3 # Чуть добавим свободы для "стиля", но не сильно
+                    temperature=0.3
                 )
                 
                 content = response.choices[0].message.content
-                # Очистка
                 content = content.replace("```json", "").replace("```", "").strip()
                 return content, strategy_name
             except Exception as e:
@@ -152,7 +145,6 @@ class TradingAgent:
             adx_val = curr["adx"]
             rsi_val = curr["rsi"]
 
-            # Расширяем лимиты RSI для опытного трейдера, он сам решит
             rsi_limit = 78 if adx_val > 35 else 70
 
             signal = None
@@ -168,7 +160,6 @@ class TradingAgent:
                     ema20_d = ta.ema(d_df["c"], length=20).iloc[-1]
                     if curr["c"] < ema20_d: continue 
 
-                # Вызов AI
                 ai_verdict, strategy_used = self.ask_ai("FUTURES", name, curr["c"], round(rsi_val,1), round(adx_val,1), "UP (15m)")
                 
                 if "WAIT" in str(ai_verdict).upper(): continue
@@ -189,45 +180,55 @@ class TradingAgent:
                 cycle_signals += 1
                 time.sleep(2)
 
-    # --- СПОТ (4H) ---
+    # --- СПОТ (4H и 1D) ---
     def check_spot(self):
         print("--- 🏦 Checking Spot ---")
+        # 🔥 Добавлен таймфрейм 1D
+        timeframes = ["4H", "1D"] 
+        
         for name, symbol in SPOT_SYMBOLS.items():
-            time.sleep(0.1)
-            df = self.get_candles(symbol, "4H", limit=200)
-            if df is None: continue
+            for tf in timeframes:
+                time.sleep(0.1)
+                df = self.get_candles(symbol, tf, limit=200)
+                if df is None: continue
 
-            rsi = ta.rsi(df["c"], length=14).iloc[-1]
-            ema200 = ta.ema(df["c"], length=200).iloc[-1]
-            price = df["c"].iloc[-1]
+                rsi = ta.rsi(df["c"], length=14).iloc[-1]
+                ema200 = ta.ema(df["c"], length=200).iloc[-1]
+                price = df["c"].iloc[-1]
 
-            is_dip = False
-            setup = ""
+                is_dip = False
+                setup = ""
 
-            if price > ema200 and rsi < 40:
-                is_dip = True
-                setup = "Trend Pullback"
-            elif rsi < 30:
-                is_dip = True
-                setup = "Oversold Bounce"
+                # Логика поиска дна работает одинаково для обоих ТФ
+                if price > ema200 and rsi < 40:
+                    is_dip = True
+                    setup = f"Trend Pullback ({tf})"
+                elif rsi < 30:
+                    is_dip = True
+                    setup = f"Oversold Bounce ({tf})"
 
-            if is_dip and self.spot_positions[name] != "BUY":
-                ai_verdict, strategy_used = self.ask_ai("SPOT", name, price, round(rsi,1), 0, setup)
+                # Уникальный ключ для отслеживания позиции: "BTC_4H" или "BTC_1D"
+                pos_key = f"{name}_{tf}"
+                current_status = self.spot_positions.get(pos_key)
+
+                if is_dip and current_status != "BUY":
+                    ai_verdict, strategy_used = self.ask_ai("SPOT", name, price, round(rsi,1), 0, setup)
+                    
+                    msg = (
+                        f"💎 **SPOT INVEST ({tf})**\n#{name} — ACCUMULATE 🔵\n"
+                        f"📉 RSI: {round(rsi, 1)}\n"
+                        f"🧠 Analyst: {strategy_used}\n"
+                        f"💰 Price: {price}\n"
+                        f"💬 Verdict: {ai_verdict}"
+                    )
+                    self.send(msg)
+                    self.spot_positions[pos_key] = "BUY"
+                    time.sleep(2)
                 
-                msg = (
-                    f"💎 **SPOT INVEST**\n#{name} — ACCUMULATE 🔵\n"
-                    f"📉 RSI: {round(rsi, 1)}\n"
-                    f"🧠 Analyst: {strategy_used}\n"
-                    f"💰 Price: {price}\n"
-                    f"💬 Verdict: {ai_verdict}"
-                )
-                self.send(msg)
-                self.spot_positions[name] = "BUY"
-                time.sleep(2)
-            
-            elif rsi > 55:
-                self.spot_positions[name] = None
+                elif rsi > 55:
+                    self.spot_positions[pos_key] = None
 
     def analyze(self):
         self.check_futures()
         self.check_spot()
+
