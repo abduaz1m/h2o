@@ -27,6 +27,7 @@ FUTURES_SYMBOLS = {
     "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3},
     "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3},
     "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
+    "MON":   {"id": "MON-USDT-SWAP",    "lev": 3},
 }
 
 # 2. 🏦 СПИСОК СПОТА
