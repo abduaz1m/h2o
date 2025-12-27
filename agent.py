@@ -70,15 +70,15 @@ class TradingAgent:
         except Exception:
             return None
 
-    # 🔥 AI МОЗГ: ОПЫТНЫЙ ТРЕЙДЕР (LONG & SHORT)
+    # 🔥 AI МОЗГ: ОПЫТНЫЙ ТРЕЙДЕР
     def ask_ai(self, mode, symbol, price, rsi, adx, trend, direction):
-        
         strategy_name = "CRYPTO_VETERAN_V2"
+        
+        # Защита от спама логов
         print(f"🧠 Veteran Analyzing {symbol} ({direction})...")
 
         json_template = '{"Risk": int, "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "text"}'
         
-        # Логика для промпта в зависимости от направления
         if direction == "LONG":
             risk_context = "RSI > 70 is OVERBOUGHT (Risk). RSI < 30 is OVERSOLD (Good for bounce)."
             objective = "Find strong bullish momentum."
@@ -130,57 +130,57 @@ class TradingAgent:
     # --- ФЬЮЧЕРСЫ (15m, 30m, 1H) ---
     def check_futures(self):
         print("--- 🚀 Checking Futures (15m, 30m, 1H) ---")
-        # Таймфреймы для проверки
         timeframes = ["15m", "30m", "1H"]
         
         for name, info in FUTURES_SYMBOLS.items():
             symbol = info["id"]
             lev = info["lev"]
             
-            # Если уже есть позиция, пропускаем, чтобы не спамить
             if self.positions[name] is not None:
                 continue
 
             for tf in timeframes:
                 time.sleep(0.15)
-                df = self.get_candles(symbol, tf)
-                if df is None: continue
+                # Берем 100 свечей (достаточно для EMA 21)
+                df = self.get_candles(symbol, tf, limit=100)
+                if df is None or len(df) < 50: continue
 
                 df["ema_f"] = ta.ema(df["c"], length=9)
                 df["ema_s"] = ta.ema(df["c"], length=21)
                 df["rsi"] = ta.rsi(df["c"], length=14)
                 df["atr"] = ta.atr(df["h"], df["l"], df["c"], length=14)
-                df["adx"] = ta.adx(df["h"], df["l"], df["c"], length=14)["ADX_14"]
+                try:
+                    df["adx"] = ta.adx(df["h"], df["l"], df["c"], length=14)["ADX_14"]
+                except:
+                    continue
                 
                 curr = df.iloc[-2]
                 adx_val = curr["adx"]
                 rsi_val = curr["rsi"]
                 price = curr["c"]
 
-                # --- ЛОГИКА СИГНАЛОВ ---
+                # Проверка на NaN
+                if pd.isna(adx_val) or pd.isna(rsi_val): continue
+
                 signal_type = None
                 
-                # 1. LONG SETUP
-                # EMA 9 выше EMA 21, RSI в здоровой зоне (не перекуплен сильно)
+                # 1. LONG
                 if (curr["ema_f"] > curr["ema_s"] and 
                     50 < rsi_val < 75 and 
                     adx_val > 20):
                     signal_type = "LONG"
 
-                # 2. SHORT SETUP
-                # EMA 9 ниже EMA 21, RSI в зоне для падения (не перепродан)
+                # 2. SHORT
                 elif (curr["ema_f"] < curr["ema_s"] and 
                       25 < rsi_val < 50 and 
                       adx_val > 20):
                     signal_type = "SHORT"
 
                 if signal_type:
-                    # AI подтверждение
                     ai_verdict, strategy_used = self.ask_ai("FUTURES", name, price, round(rsi_val,1), round(adx_val,1), f"{tf} Trend", signal_type)
                     
                     if "WAIT" in str(ai_verdict).upper(): continue
 
-                    # Расчет TP/SL
                     atr_mult_sl = 2.0
                     atr_mult_tp = 3.5
                     
@@ -205,9 +205,9 @@ class TradingAgent:
                         f"💬 Verdict: {ai_verdict}"
                     )
                     self.send(msg)
-                    self.positions[name] = signal_type # Запоминаем, что вошли
+                    self.positions[name] = signal_type 
                     time.sleep(2)
-                    break # Если нашли сигнал на одном ТФ, переходим к следующей монете
+                    break 
 
     # --- СПОТ (1D, 3D, 1W) ---
     def check_spot(self):
@@ -219,17 +219,33 @@ class TradingAgent:
 
             for tf in timeframes:
                 time.sleep(0.1)
-                df = self.get_candles(symbol, tf, limit=100)
-                if df is None: continue
+                # 🔥 ИСПРАВЛЕНИЕ: Берем 300 свечей, чтобы EMA 200 могла рассчитаться
+                df = self.get_candles(symbol, tf, limit=300)
+                
+                # 🔥 ИСПРАВЛЕНИЕ: Если данных меньше 200, пропускаем, иначе будет ошибка .iloc
+                if df is None or len(df) < 205: continue
 
-                rsi = ta.rsi(df["c"], length=14).iloc[-1]
-                ema200 = ta.ema(df["c"], length=200).iloc[-1]
-                price = df["c"].iloc[-1]
+                try:
+                    rsi_series = ta.rsi(df["c"], length=14)
+                    ema200_series = ta.ema(df["c"], length=200)
+
+                    # Если pandas_ta вернул мусор или пустые данные
+                    if rsi_series is None or ema200_series is None: continue
+
+                    rsi = rsi_series.iloc[-1]
+                    ema200 = ema200_series.iloc[-1]
+                    price = df["c"].iloc[-1]
+                    
+                    # Если EMA200 еще не рассчиталась (NaN)
+                    if pd.isna(ema200): continue
+
+                except Exception as e:
+                    # Ловим ошибки тихо, чтобы не крашить цикл
+                    continue
 
                 is_dip = False
                 setup = ""
 
-                # Логика "Купи дно"
                 if price > ema200 and rsi < 40:
                     is_dip = True
                     setup = f"Trend Pullback ({tf})"
@@ -250,11 +266,9 @@ class TradingAgent:
                     self.send(msg)
                     self.spot_positions[name] = "BUY"
                     time.sleep(2)
-                    break # Нашли вход - выходим из цикла ТФ
+                    break 
             
-            # Сброс позиции если RSI восстановился (проверяем по 1D)
             if self.spot_positions[name] == "BUY":
-                 # Простая проверка для сброса флага (не продажа, просто разрешение искать новый вход)
                  pass 
 
     def analyze(self):
