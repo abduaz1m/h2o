@@ -5,10 +5,10 @@ import pandas as pd
 import pandas_ta as ta
 from openai import OpenAI
 
-# --- CONFIGURATION ---
+# --- КОНФИГУРАЦИЯ ---
 OKX_URL = "https://www.okx.com/api/v5/market/candles"
 
-# 1. 🚜 FUTURES LIST
+# 1. 🚜 СПИСОК ФЬЮЧЕРСОВ
 FUTURES_SYMBOLS = {
     "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 10},
     "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 10},
@@ -29,7 +29,7 @@ FUTURES_SYMBOLS = {
     "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
 }
 
-# 2. 🏦 SPOT LIST
+# 2. 🏦 СПИСОК СПОТА
 SPOT_SYMBOLS = {
     "BTC": "BTC-USDT",
     "ETH": "ETH-USDT",
@@ -43,6 +43,7 @@ class TradingAgent:
     def __init__(self, bot_token, chat_id, openai_key):
         self.bot_token = bot_token
         self.chat_id = chat_id
+        # Подключение к DeepSeek
         self.client = OpenAI(api_key=openai_key, base_url="https://api.deepseek.com")
         self.positions = {name: None for name in FUTURES_SYMBOLS}
         self.spot_positions = {name: None for name in SPOT_SYMBOLS}
@@ -69,37 +70,40 @@ class TradingAgent:
         except Exception:
             return None
 
-    # 🔥 AI BRAIN: PULLBACK STRATEGY
+    # 🔥 AI: СТРАТЕГИЯ "EARLY ENTRY" (РАННИЙ ВХОД)
     def ask_ai(self, mode, symbol, price, rsi, adx, trend, direction):
-        strategy_name = "SMART_PULLBACK_V3"
-        print(f"🧠 AI Analyzing {symbol} ({direction})...")
+        strategy_name = "VETERAN_EARLY_ENTRY"
+        
+        print(f"🧠 Checking Early Entry for {symbol} ({direction})...")
 
         json_template = '{"Risk": int, "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "text"}'
         
         if direction == "LONG":
-            # We want to buy when everyone is scared (RSI low) but Trend is UP
-            context = "We are buying the DIP in an Uptrend. Do not fear red candles."
-        else: 
-            # We want to short when price spikes up in a Downtrend
-            context = "We are shorting the RALLY in a Downtrend. Sell the pump."
+            objective = "Catch the start of the pump (Breakout or Reversal)."
+            warning = "DO NOT BUY if RSI > 70 (Too late)."
+        else:
+            objective = "Catch the start of the dump."
+            warning = "DO NOT SHORT if RSI < 30 (Too late)."
 
         system_prompt = (
-            f"You are a Sniper Trader. Strategy: PULLBACK TRADING.\n"
-            f"CONTEXT: {context}\n"
-            f"RULES:\n"
-            f"1. IGNORE FOMO. We enter ONLY on corrections.\n"
-            f"2. Risk is HIGH if ADX < 20 (No trend).\n"
-            f"3. Confirm if the 'dip' is stabilizing.\n"
-            f"OUTPUT FORMAT (JSON): {json_template}"
+            f"Ты — скальпер-профессионал. Твоя задача — найти точку входа В НАЧАЛЕ движения.\n"
+            f"НАПРАВЛЕНИЕ: {direction}\n"
+            f"ЦЕЛЬ: {objective}\n"
+            f"ВАЖНО: {warning}\n"
+            f"ПРАВИЛА:\n"
+            f"1. Если цена уже улетела далеко от средних — WAIT (поздно).\n"
+            f"2. Если ADX < 15 — флэт, опасно, WAIT.\n"
+            f"3. Твой вердикт должен быть жестким. Если есть сомнения — WAIT.\n"
+            f"ФОРМАТ ОТВЕТА (JSON): {json_template}"
         )
 
         user_prompt = (
             f"Asset: {symbol}\n"
             f"Price: {price}\n"
-            f"RSI (14): {rsi} (Should be favorable for pullback)\n"
+            f"RSI (14): {rsi}\n"
             f"ADX: {adx}\n"
-            f"Trend: {trend}\n"
-            f"Setup: {direction} Entry\n"
+            f"Structure: {trend}\n"
+            f"Setup: Price crossed EMA aggressive.\n"
         )
 
         for i in range(2):
@@ -122,9 +126,9 @@ class TradingAgent:
         
         return "Skip", strategy_name
 
-    # --- FUTURES (15m, 30m, 1H) ---
+    # --- ФЬЮЧЕРСЫ (15m, 30m, 1H) ---
     def check_futures(self):
-        print("--- 🚀 Checking Futures (Pullback Logic) ---")
+        print("--- 🚀 Checking Futures (Smart Price Action) ---")
         timeframes = ["15m", "30m", "1H"]
         
         for name, info in FUTURES_SYMBOLS.items():
@@ -136,72 +140,80 @@ class TradingAgent:
 
             for tf in timeframes:
                 time.sleep(0.15)
-                # Need enough data for EMA 50
+                # Берем чуть больше свечей для EMA 50
                 df = self.get_candles(symbol, tf, limit=100)
-                if df is None or len(df) < 55: continue
+                if df is None or len(df) < 60: continue
 
-                # INDICATORS
-                df["ema_50"] = ta.ema(df["c"], length=50) # Main Trend
+                # ИНДИКАТОРЫ
+                df["ema_fast"] = ta.ema(df["c"], length=9)   # Быстрая линия (Триггер)
+                df["ema_trend"] = ta.ema(df["c"], length=50) # Глобальный тренд (Фильтр)
                 df["rsi"] = ta.rsi(df["c"], length=14)
                 df["atr"] = ta.atr(df["h"], df["l"], df["c"], length=14)
                 try:
                     df["adx"] = ta.adx(df["h"], df["l"], df["c"], length=14)["ADX_14"]
                 except: continue
                 
-                curr = df.iloc[-2] # Closed candle
+                # Текущая и предыдущая свеча
+                curr = df.iloc[-1] # Текущая (закрытая или последняя обновленная)
+                prev = df.iloc[-2] # Предыдущая (для проверки пересечения)
+
                 adx_val = curr["adx"]
                 rsi_val = curr["rsi"]
                 price = curr["c"]
-                ema_50 = curr["ema_50"]
 
-                if pd.isna(ema_50) or pd.isna(rsi_val): continue
+                if pd.isna(curr["ema_trend"]) or pd.isna(rsi_val): continue
 
                 signal_type = None
                 
-                # --- NEW LOGIC: PULLBACKS ---
+                # --- НОВАЯ ЛОГИКА (БЕЗ ЗАПАЗДЫВАНИЯ) ---
                 
-                # 1. LONG SETUP (Trend UP + Price Cheap)
-                # Trend: Price > EMA 50
-                # Trigger: RSI < 45 (We buy the dip!) 
-                if (price > ema_50 and 
-                    rsi_val < 45 and 
-                    adx_val > 20):
+                # 1. LONG SETUP:
+                # Глобальный тренд вверх (Цена > EMA 50)
+                # Локальный откат закончился: Цена пересекла EMA 9 снизу вверх
+                if (price > curr["ema_trend"] and          # Тренд UP
+                    prev["c"] < prev["ema_fast"] and       # Вчера были ниже EMA 9
+                    curr["c"] > curr["ema_fast"] and       # Сегодня пробили EMA 9 вверх
+                    40 < rsi_val < 68 and                  # RSI здоровый (не перекуплен > 70)
+                    adx_val > 15):                         # Есть хоть какая-то волатильность
                     signal_type = "LONG"
 
-                # 2. SHORT SETUP (Trend DOWN + Price Expensive)
-                # Trend: Price < EMA 50
-                # Trigger: RSI > 55 (We sell the bounce!)
-                elif (price < ema_50 and 
-                      rsi_val > 55 and 
-                      adx_val > 20):
+                # 2. SHORT SETUP:
+                # Глобальный тренд вниз (Цена < EMA 50)
+                # Локальный отскок закончился: Цена пересекла EMA 9 сверху вниз
+                elif (price < curr["ema_trend"] and        # Тренд DOWN
+                      prev["c"] > prev["ema_fast"] and     # Вчера были выше EMA 9
+                      curr["c"] < curr["ema_fast"] and     # Сегодня пробили EMA 9 вниз
+                      32 < rsi_val < 60 and                # RSI здоровый (не перепродан < 30)
+                      adx_val > 15):
                     signal_type = "SHORT"
 
                 if signal_type:
-                    ai_verdict, strategy_used = self.ask_ai("FUTURES", name, price, round(rsi_val,1), round(adx_val,1), f"{tf} Trend", signal_type)
+                    # AI Filter
+                    ai_verdict, strategy_used = self.ask_ai("FUTURES", name, price, round(rsi_val,1), round(adx_val,1), f"{tf} Trend Breakout", signal_type)
                     
                     if "WAIT" in str(ai_verdict).upper(): continue
 
-                    # Tighter Stops for Pullback
-                    atr_mult_sl = 1.5
-                    atr_mult_tp = 3.0
+                    # Умные стопы (короче, чем раньше)
+                    atr_mult_sl = 1.5 # Короткий стоп
+                    atr_mult_tp = 3.0 # Длинный тейк
                     
                     if signal_type == "LONG":
                         tp = price + (curr["atr"] * atr_mult_tp)
                         sl = price - (curr["atr"] * atr_mult_sl)
                         emoji = "🟢"
-                        title = "BUY THE DIP"
+                        title = "FAST LONG"
                     else:
                         tp = price - (curr["atr"] * atr_mult_tp)
                         sl = price + (curr["atr"] * atr_mult_sl)
                         emoji = "🔴"
-                        title = "SELL THE PUMP"
+                        title = "FAST SHORT"
 
                     msg = (
-                        f"🚀 **{title}** {emoji}\n"
+                        f"⚡ **{title}** {emoji}\n"
                         f"#{name} — {tf}\n"
                         f"🧠 Strat: **{strategy_used}**\n"
                         f"⚙️ Lev: {lev}x\n"
-                        f"📉 RSI: {round(rsi_val,1)} (Pullback)\n"
+                        f"📊 RSI: {round(rsi_val,1)} (OK zone)\n"
                         f"💰 Entry: {price}\n🎯 TP: {round(tp,4)}\n🛑 SL: {round(sl,4)}\n"
                         f"💬 AI: {ai_verdict}"
                     )
@@ -210,10 +222,10 @@ class TradingAgent:
                     time.sleep(2)
                     break 
 
-    # --- SPOT (1D, 4H) ---
+    # --- СПОТ (1D, 3D, 1W) ---
     def check_spot(self):
-        print("--- 🏦 Checking Spot ---")
-        timeframes = ["4H", "1D"]
+        print("--- 🏦 Checking Spot (Dip Hunting) ---")
+        timeframes = ["1D", "3D", "1W"]
         
         for name, symbol in SPOT_SYMBOLS.items():
             if self.spot_positions[name] == "BUY": continue
@@ -227,25 +239,25 @@ class TradingAgent:
                     rsi = ta.rsi(df["c"], length=14).iloc[-1]
                     ema200 = ta.ema(df["c"], length=200).iloc[-1]
                     price = df["c"].iloc[-1]
-                    
                     if pd.isna(ema200): continue
                 except: continue
 
                 is_dip = False
                 setup = ""
 
+                # Спот логика остается "покупкой дна", тут спешка не нужна
                 if price > ema200 and rsi < 40:
                     is_dip = True
                     setup = f"Trend Pullback ({tf})"
                 elif rsi < 30:
                     is_dip = True
-                    setup = f"Oversold ({tf})"
+                    setup = f"Oversold Bounce ({tf})"
 
                 if is_dip:
                     ai_verdict, strategy_used = self.ask_ai("SPOT", name, price, round(rsi,1), 0, setup, "LONG")
                     
                     msg = (
-                        f"💎 **SPOT ENTRY**\n#{name} — {tf} 🔵\n"
+                        f"💎 **SPOT INVEST**\n#{name} — {tf} 🔵\n"
                         f"📉 RSI: {round(rsi, 1)}\n"
                         f"🧠 Strat: {strategy_used}\n"
                         f"💰 Price: {price}\n"
