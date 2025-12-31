@@ -234,7 +234,6 @@ class TradingAgent:
                 is_dip = False
                 setup = ""
 
-                # Spot Logic: Only deep value
                 if price > ema200 and rsi < 40:
                     is_dip = True
                     setup = f"Trend Pullback ({tf})"
