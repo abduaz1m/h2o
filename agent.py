@@ -70,30 +70,31 @@ class TradingAgent:
         except Exception:
             return None
 
-    # 🔥 AI: СТРАТЕГИЯ "EARLY ENTRY" (РАННИЙ ВХОД)
+    # 🔥 AI МОЗГ: ОПЫТНЫЙ ТРЕЙДЕР
     def ask_ai(self, mode, symbol, price, rsi, adx, trend, direction):
-        strategy_name = "VETERAN_EARLY_ENTRY"
+        strategy_name = "CRYPTO_VETERAN_V2"
         
-        print(f"🧠 Checking Early Entry for {symbol} ({direction})...")
+        # Защита от спама логов
+        print(f"🧠 Veteran Analyzing {symbol} ({direction})...")
 
         json_template = '{"Risk": int, "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "text"}'
         
         if direction == "LONG":
-            objective = "Catch the start of the pump (Breakout or Reversal)."
-            warning = "DO NOT BUY if RSI > 70 (Too late)."
-        else:
-            objective = "Catch the start of the dump."
-            warning = "DO NOT SHORT if RSI < 30 (Too late)."
+            risk_context = "RSI > 70 is OVERBOUGHT (Risk). RSI < 30 is OVERSOLD (Good for bounce)."
+            objective = "Find strong bullish momentum."
+        else: # SHORT
+            risk_context = "RSI < 30 is OVERSOLD (Risk for short). RSI > 70 is OVERBOUGHT (Good for dump)."
+            objective = "Find breakdown and weakness."
 
         system_prompt = (
-            f"Ты — скальпер-профессионал. Твоя задача — найти точку входа В НАЧАЛЕ движения.\n"
-            f"НАПРАВЛЕНИЕ: {direction}\n"
+            f"Ты — опытный крипто-трейдер. Твой стиль: Price Action + VSA.\n"
+            f"ЗАДАЧА: Оценить вход в {direction} позицию.\n"
+            f"КОНТЕКСТ РИСКА: {risk_context}\n"
             f"ЦЕЛЬ: {objective}\n"
-            f"ВАЖНО: {warning}\n"
             f"ПРАВИЛА:\n"
-            f"1. Если цена уже улетела далеко от средних — WAIT (поздно).\n"
-            f"2. Если ADX < 15 — флэт, опасно, WAIT.\n"
-            f"3. Твой вердикт должен быть жестким. Если есть сомнения — WAIT.\n"
+            f"1. Если тренд противоречит позиции — WAIT.\n"
+            f"2. Если ADX < 20 — рынок спит, WAIT.\n"
+            f"3. Для LONG: опасайся сопротивлений. Для SHORT: опасайся поддержек.\n"
             f"ФОРМАТ ОТВЕТА (JSON): {json_template}"
         )
 
@@ -102,8 +103,8 @@ class TradingAgent:
             f"Price: {price}\n"
             f"RSI (14): {rsi}\n"
             f"ADX: {adx}\n"
-            f"Structure: {trend}\n"
-            f"Setup: Price crossed EMA aggressive.\n"
+            f"Trend Context: {trend}\n"
+            f"Requested Setup: {direction} Signal\n"
         )
 
         for i in range(2):
@@ -115,7 +116,7 @@ class TradingAgent:
                         {"role": "user", "content": user_prompt}
                     ],
                     max_tokens=200,
-                    temperature=0.2
+                    temperature=0.3
                 )
                 content = response.choices[0].message.content
                 content = content.replace("```json", "").replace("```", "").strip()
@@ -128,7 +129,7 @@ class TradingAgent:
 
     # --- ФЬЮЧЕРСЫ (15m, 30m, 1H) ---
     def check_futures(self):
-        print("--- 🚀 Checking Futures (Smart Price Action) ---")
+        print("--- 🚀 Checking Futures (15m, 30m, 1H) ---")
         timeframes = ["15m", "30m", "1H"]
         
         for name, info in FUTURES_SYMBOLS.items():
@@ -140,82 +141,68 @@ class TradingAgent:
 
             for tf in timeframes:
                 time.sleep(0.15)
-                # Берем чуть больше свечей для EMA 50
+                # Берем 100 свечей (достаточно для EMA 21)
                 df = self.get_candles(symbol, tf, limit=100)
-                if df is None or len(df) < 60: continue
+                if df is None or len(df) < 50: continue
 
-                # ИНДИКАТОРЫ
-                df["ema_fast"] = ta.ema(df["c"], length=9)   # Быстрая линия (Триггер)
-                df["ema_trend"] = ta.ema(df["c"], length=50) # Глобальный тренд (Фильтр)
+                df["ema_f"] = ta.ema(df["c"], length=9)
+                df["ema_s"] = ta.ema(df["c"], length=21)
                 df["rsi"] = ta.rsi(df["c"], length=14)
                 df["atr"] = ta.atr(df["h"], df["l"], df["c"], length=14)
                 try:
                     df["adx"] = ta.adx(df["h"], df["l"], df["c"], length=14)["ADX_14"]
-                except: continue
+                except:
+                    continue
                 
-                # Текущая и предыдущая свеча
-                curr = df.iloc[-1] # Текущая (закрытая или последняя обновленная)
-                prev = df.iloc[-2] # Предыдущая (для проверки пересечения)
-
+                curr = df.iloc[-2]
                 adx_val = curr["adx"]
                 rsi_val = curr["rsi"]
                 price = curr["c"]
 
-                if pd.isna(curr["ema_trend"]) or pd.isna(rsi_val): continue
+                # Проверка на NaN
+                if pd.isna(adx_val) or pd.isna(rsi_val): continue
 
                 signal_type = None
                 
-                # --- НОВАЯ ЛОГИКА (БЕЗ ЗАПАЗДЫВАНИЯ) ---
-                
-                # 1. LONG SETUP:
-                # Глобальный тренд вверх (Цена > EMA 50)
-                # Локальный откат закончился: Цена пересекла EMA 9 снизу вверх
-                if (price > curr["ema_trend"] and          # Тренд UP
-                    prev["c"] < prev["ema_fast"] and       # Вчера были ниже EMA 9
-                    curr["c"] > curr["ema_fast"] and       # Сегодня пробили EMA 9 вверх
-                    40 < rsi_val < 68 and                  # RSI здоровый (не перекуплен > 70)
-                    adx_val > 15):                         # Есть хоть какая-то волатильность
+                # 1. LONG
+                if (curr["ema_f"] > curr["ema_s"] and 
+                    50 < rsi_val < 75 and 
+                    adx_val > 20):
                     signal_type = "LONG"
 
-                # 2. SHORT SETUP:
-                # Глобальный тренд вниз (Цена < EMA 50)
-                # Локальный отскок закончился: Цена пересекла EMA 9 сверху вниз
-                elif (price < curr["ema_trend"] and        # Тренд DOWN
-                      prev["c"] > prev["ema_fast"] and     # Вчера были выше EMA 9
-                      curr["c"] < curr["ema_fast"] and     # Сегодня пробили EMA 9 вниз
-                      32 < rsi_val < 60 and                # RSI здоровый (не перепродан < 30)
-                      adx_val > 15):
+                # 2. SHORT
+                elif (curr["ema_f"] < curr["ema_s"] and 
+                      25 < rsi_val < 50 and 
+                      adx_val > 20):
                     signal_type = "SHORT"
 
                 if signal_type:
-                    # AI Filter
-                    ai_verdict, strategy_used = self.ask_ai("FUTURES", name, price, round(rsi_val,1), round(adx_val,1), f"{tf} Trend Breakout", signal_type)
+                    ai_verdict, strategy_used = self.ask_ai("FUTURES", name, price, round(rsi_val,1), round(adx_val,1), f"{tf} Trend", signal_type)
                     
                     if "WAIT" in str(ai_verdict).upper(): continue
 
-                    # Умные стопы (короче, чем раньше)
-                    atr_mult_sl = 1.5 # Короткий стоп
-                    atr_mult_tp = 3.0 # Длинный тейк
+                    atr_mult_sl = 2.0
+                    atr_mult_tp = 3.5
                     
                     if signal_type == "LONG":
                         tp = price + (curr["atr"] * atr_mult_tp)
                         sl = price - (curr["atr"] * atr_mult_sl)
                         emoji = "🟢"
-                        title = "FAST LONG"
+                        title = "LONG SIGNAL"
                     else:
                         tp = price - (curr["atr"] * atr_mult_tp)
                         sl = price + (curr["atr"] * atr_mult_sl)
                         emoji = "🔴"
-                        title = "FAST SHORT"
+                        title = "SHORT SIGNAL"
 
                     msg = (
-                        f"⚡ **{title}** {emoji}\n"
+                        f"🚀 **{title}** {emoji}\n"
                         f"#{name} — {tf}\n"
-                        f"🧠 Strat: **{strategy_used}**\n"
+                        f"🧠 Analyst: **{strategy_used}**\n"
                         f"⚙️ Lev: {lev}x\n"
-                        f"📊 RSI: {round(rsi_val,1)} (OK zone)\n"
+                        f"📊 ADX: {round(adx_val,1)} | RSI: {round(rsi_val,1)}\n"
                         f"💰 Entry: {price}\n🎯 TP: {round(tp,4)}\n🛑 SL: {round(sl,4)}\n"
-                        f"💬 AI: {ai_verdict}"
+                        f"💬 Verdict: {ai_verdict}"
                     )
                     self.send(msg)
                     self.positions[name] = signal_type 
@@ -224,7 +211,7 @@ class TradingAgent:
 
     # --- СПОТ (1D, 3D, 1W) ---
     def check_spot(self):
-        print("--- 🏦 Checking Spot (Dip Hunting) ---")
+        print("--- 🏦 Checking Spot (1D, 3D, 1W) ---")
         timeframes = ["1D", "3D", "1W"]
         
         for name, symbol in SPOT_SYMBOLS.items():
@@ -232,20 +219,33 @@ class TradingAgent:
 
             for tf in timeframes:
                 time.sleep(0.1)
+                # 🔥 ИСПРАВЛЕНИЕ: Берем 300 свечей, чтобы EMA 200 могла рассчитаться
                 df = self.get_candles(symbol, tf, limit=300)
+                
+                # 🔥 ИСПРАВЛЕНИЕ: Если данных меньше 200, пропускаем, иначе будет ошибка .iloc
                 if df is None or len(df) < 205: continue
 
                 try:
-                    rsi = ta.rsi(df["c"], length=14).iloc[-1]
-                    ema200 = ta.ema(df["c"], length=200).iloc[-1]
+                    rsi_series = ta.rsi(df["c"], length=14)
+                    ema200_series = ta.ema(df["c"], length=200)
+
+                    # Если pandas_ta вернул мусор или пустые данные
+                    if rsi_series is None or ema200_series is None: continue
+
+                    rsi = rsi_series.iloc[-1]
+                    ema200 = ema200_series.iloc[-1]
                     price = df["c"].iloc[-1]
+                    
+                    # Если EMA200 еще не рассчиталась (NaN)
                     if pd.isna(ema200): continue
-                except: continue
+
+                except Exception as e:
+                    # Ловим ошибки тихо, чтобы не крашить цикл
+                    continue
 
                 is_dip = False
                 setup = ""
 
-                # Спот логика остается "покупкой дна", тут спешка не нужна
                 if price > ema200 and rsi < 40:
                     is_dip = True
                     setup = f"Trend Pullback ({tf})"
@@ -259,9 +259,9 @@ class TradingAgent:
                     msg = (
                         f"💎 **SPOT INVEST**\n#{name} — {tf} 🔵\n"
                         f"📉 RSI: {round(rsi, 1)}\n"
-                        f"🧠 Strat: {strategy_used}\n"
+                        f"🧠 Analyst: {strategy_used}\n"
                         f"💰 Price: {price}\n"
-                        f"💬 AI: {ai_verdict}"
+                        f"💬 Verdict: {ai_verdict}"
                     )
                     self.send(msg)
                     self.spot_positions[name] = "BUY"
