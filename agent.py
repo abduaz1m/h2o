@@ -195,7 +195,7 @@ class TradingAgent:
 
                     # Умные стопы (короче, чем раньше)
                     atr_mult_sl = 1.5 # Короткий стоп
-                    atr_mult_tp = 3.0 # Длинный тейк
+                    atr_mult_tp = 6.0 # Длинный тейк
                     
                     if signal_type == "LONG":
                         tp = price + (curr["atr"] * atr_mult_tp)
