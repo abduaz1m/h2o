@@ -24,7 +24,6 @@ FUTURES_SYMBOLS = {
     "TIA":    {"id": "TIA-USDT-SWAP",    "lev": 7},
     "FET":    {"id": "FET-USDT-SWAP",    "lev": 5},
     "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 5},
-    "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3},
     "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3},
     "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
 }
