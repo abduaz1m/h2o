@@ -4,7 +4,7 @@ import time
 from openai import OpenAI
 
 # --- КОНФИГУРАЦИЯ ---
-# Используем Ticker endpoint для получения данных стакана (Level 1)
+# Используем Ticker Endpoint для получения Bid/Ask и цены в реальном времени
 OKX_TICKER_URL = "https://www.okx.com/api/v5/market/ticker"
 
 # 1. 🚜 СПИСОК ФЬЮЧЕРСОВ
@@ -46,54 +46,53 @@ class TradingAgent:
         except Exception:
             pass
 
-    # 📊 ПОЛУЧЕНИЕ ДАННЫХ Ticker (ЦЕНА + BID/ASK)
+    # 📊 ПОЛУЧЕНИЕ ДАННЫХ (Price + Order Book Depth)
     def get_ticker_data(self, symbol):
         try:
-            r = requests.get(OKX_TICKER_URL, params={"instId": symbol}, timeout=5)
+            params = {"instId": symbol}
+            r = requests.get(OKX_TICKER_URL, params=params, timeout=5)
             data = r.json().get("data", [])
             if not data: return None
             
             ticker = data[0]
             return {
-                "price": float(ticker["last"]),      # Последняя цена сделки
-                "bid_px": float(ticker["bidPx"]),    # Цена покупки (лучшая)
-                "bid_sz": float(ticker["bidSz"]),    # Объем на покупку (стенка)
-                "ask_px": float(ticker["askPx"]),    # Цена продажи (лучшая)
-                "ask_sz": float(ticker["askSz"]),    # Объем на продажу (стенка)
+                "price": float(ticker["last"]),
+                "bid_px": float(ticker["bidPx"]), # Цена покупки
+                "bid_sz": float(ticker["bidSz"]), # Объем на покупку (Спрос)
+                "ask_px": float(ticker["askPx"]), # Цена продажи
+                "ask_sz": float(ticker["askSz"])  # Объем на продажу (Предложение)
             }
         except Exception:
             return None
 
-    # 🔥 AI: ЧТЕНИЕ ПОТОКА ОРДЕРОВ (TAPE READING)
-    def ask_ai_orderflow(self, symbol, price, bid_sz, ask_sz, ratio, imbalance):
+    # 🔥 AI МОЗГ: ORDER FLOW ANALYST
+    def ask_ai(self, symbol, price, bid_sz, ask_sz, ratio):
         strategy_name = "ORDER_FLOW_SCALPER"
         
-        print(f"🧠 DeepSeek reading Tape for {symbol} | Ratio: {ratio}...")
+        print(f"🧠 Checking Order Flow for {symbol} (Ratio: {ratio})...")
 
-        json_template = '{"Confidence": int, "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "text"}'
-        
+        json_template = '{"Risk": int, "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "text"}'
+
+        # Промпт теперь смотрит только на стакан
         system_prompt = (
-            f"Ты — HFT алгоритм (High Frequency Trading). Ты анализируешь Bid-Ask Ratio и дисбаланс ликвидности.\n"
-            f"ТВОЯ ЗАДАЧА: Определить, кто давит на цену прямо сейчас — Покупатели или Продавцы.\n\n"
+            f"Ты — скальпер, торгующий по стакану (Order Flow).\n"
+            f"ТВОЯ ЗАДАЧА: Найти дисбаланс спроса и предложения.\n"
             f"ДАННЫЕ:\n"
-            f"- Bid Volume (Покупатели): Объем заявок на покупку в моменте.\n"
-            f"- Ask Volume (Продавцы): Объем заявок на продажу в моменте.\n"
-            f"- Ratio: Bid / Ask.\n\n"
+            f"- Bid Size (Покупатели): {bid_sz}\n"
+            f"- Ask Size (Продавцы): {ask_sz}\n"
+            f"- Ratio (Bid/Ask): {ratio}\n\n"
             f"ПРАВИЛА:\n"
-            f"1. Ratio > 2.0 (Покупателей в 2 раза больше) -> Вероятный РОСТ (BUY).\n"
-            f"2. Ratio < 0.5 (Продавцов в 2 раза больше) -> Вероятное ПАДЕНИЕ (SELL).\n"
-            f"3. Если Ratio около 1.0 (1.0 - 1.3) -> Рынок в равновесии -> WAIT.\n"
-            f"4. Игнорируй мелкие объемы, ищи большие 'стенки'.\n"
+            f"1. Ratio > 2.0 -> СИЛЬНОЕ давление покупателей -> BUY.\n"
+            f"2. Ratio < 0.5 -> СИЛЬНОЕ давление продавцов -> SELL.\n"
+            f"3. Если Ratio между 0.8 и 1.2 -> Рынок в равновесии -> WAIT.\n"
+            f"4. Игнорируй мелкие объемы, ищи аномалии.\n"
             f"ФОРМАТ ОТВЕТА (JSON): {json_template}"
         )
 
         user_prompt = (
             f"Asset: {symbol}\n"
-            f"Current Price: {price}\n"
-            f"Bid Size (Buyers): {bid_sz}\n"
-            f"Ask Size (Sellers): {ask_sz}\n"
-            f"Bid-Ask Ratio: {ratio}\n"
-            f"Imbalance Status: {imbalance}\n"
+            f"Price: {price}\n"
+            f"Order Book State: Bid={bid_sz} vs Ask={ask_sz}\n"
         )
 
         for i in range(2):
@@ -105,7 +104,7 @@ class TradingAgent:
                         {"role": "user", "content": user_prompt}
                     ],
                     max_tokens=150,
-                    temperature=0.1 # Нужна максимальная математическая точность
+                    temperature=0.1 # Максимальная строгость
                 )
                 content = response.choices[0].message.content
                 content = content.replace("```json", "").replace("```", "").strip()
@@ -116,91 +115,73 @@ class TradingAgent:
         
         return "Skip", strategy_name
 
-    # --- АНАЛИЗ РЫНКА ---
-    def check_market(self):
-        print("--- ⚖️ Checking Order Flow & Bid-Ask Ratio ---")
+    def analyze(self):
+        print("--- ⚡ Scanning Order Flow (Bid/Ask) ---")
         
         for name, info in FUTURES_SYMBOLS.items():
             symbol = info["id"]
             lev = info["lev"]
+            time.sleep(0.1) # Быстрый скан
+
+            data = self.get_ticker_data(symbol)
+            if not data: continue
+
+            price = data["price"]
+            bid_sz = data["bid_sz"]
+            ask_sz = data["ask_sz"]
             
-            # Задержка, чтобы не превысить лимиты API
-            time.sleep(0.2) 
-
-            # 1. Получаем "сырые" данные с рынка
-            ticker = self.get_ticker_data(symbol)
-            if not ticker: continue
-
-            price = ticker["price"]
-            bid_sz = ticker["bid_sz"]
-            ask_sz = ticker["ask_sz"]
-
-            # 2. Считаем Bid-Ask Ratio
-            # Защита от деления на ноль
-            if ask_sz == 0: ask_sz = 0.0001 
+            # Избегаем деления на ноль
+            if ask_sz == 0: continue
+            
+            # 🔥 РАСЧЕТ КОЭФФИЦИЕНТА ДАВЛЕНИЯ
+            # Ratio = 1.0 (Равновесие)
+            # Ratio = 3.0 (Покупателей в 3 раза больше)
             ratio = round(bid_sz / ask_sz, 2)
-
-            # 3. Определяем дисбаланс
-            imbalance = "NEUTRAL"
+            
             signal_type = None
 
-            # Фильтры для первичного отсева (чтобы не дергать AI зря)
-            if ratio >= 2.5: # Покупателей в 2.5 раза больше
-                imbalance = "STRONG_BUY_WALL"
+            # Фильтр шума: реагируем только на явный перевес (минимум в 2 раза)
+            if ratio >= 2.5:
                 signal_type = "LONG"
-            elif ratio <= 0.4: # Продавцов в 2.5 раза больше
-                imbalance = "STRONG_SELL_WALL"
+            elif ratio <= 0.4: # (Это значит Ask в 2.5 раза больше Bid)
                 signal_type = "SHORT"
-            
-            # Если есть сильный перекос в стакане, зовем AI
-            if signal_type and self.positions[name] is None:
-                
-                ai_verdict, strategy_used = self.ask_ai_orderflow(
-                    name, price, bid_sz, ask_sz, ratio, imbalance
-                )
-                
-                # Если AI сказал WAIT - пропускаем
-                if "WAIT" in str(ai_verdict).upper(): 
-                    continue
 
-                # Расчет простых целей (скальпинг)
-                # Берем фиксированный % так как ATR у нас больше нет
-                take_profit_pct = 0.015  # 1.5% движения цены
-                stop_loss_pct = 0.008    # 0.8% стоп
+            # Если мы не в позиции и нашли сигнал
+            if signal_type and self.positions[name] != signal_type:
+                
+                # AI подтверждение
+                ai_verdict, strategy_used = self.ask_ai(name, price, bid_sz, ask_sz, ratio)
+                
+                if "WAIT" in str(ai_verdict).upper(): continue
+
+                # Скальперские тейки (очень короткие, так как стакан меняется быстро)
+                tp_pct = 0.015  # 1.5% движения цены
+                sl_pct = 0.008  # 0.8% стоп
 
                 if signal_type == "LONG":
-                    tp = price * (1 + take_profit_pct)
-                    sl = price * (1 - stop_loss_pct)
+                    tp = price * (1 + tp_pct)
+                    sl = price * (1 - sl_pct)
                     emoji = "🟢"
-                    title = "BUY PRESSURE"
-                    desc = f"Buyers dominate x{ratio}"
+                    title = "BID WALL DETECTED" # Стена на покупку
                 else:
-                    tp = price * (1 - take_profit_pct)
-                    sl = price * (1 + stop_loss_pct)
+                    tp = price * (1 - tp_pct)
+                    sl = price * (1 + sl_pct)
                     emoji = "🔴"
-                    title = "SELL PRESSURE"
-                    desc = f"Sellers dominate (Ratio {ratio})"
+                    title = "ASK WALL DETECTED" # Стена на продажу
 
                 msg = (
                     f"⚡ **{title}** {emoji}\n"
-                    f"#{name} — Order Flow\n"
-                    f"📊 Bid/Ask Ratio: **{ratio}**\n"
-                    f"🧱 Imbalance: {desc}\n"
-                    f"💰 Price: {price}\n"
-                    f"🎯 TP: {round(tp,5)}\n🛑 SL: {round(sl,5)}\n"
-                    f"🤖 AI Verdict: {ai_verdict}"
+                    f"#{name} — Price: {price}\n"
+                    f"⚖️ **Ratio:** {ratio} (Bids vs Asks)\n"
+                    f"🌊 Flow: {bid_sz} 🆚 {ask_sz}\n"
+                    f"🧠 AI: {ai_verdict}\n"
+                    f"🎯 TP: {round(tp,4)} | 🛑 SL: {round(sl,4)}"
                 )
                 self.send(msg)
-                
-                # Ставим "блокировку" на вход по этой монете на короткое время
                 self.positions[name] = signal_type 
+                time.sleep(1) # Небольшая пауза после сигнала
 
-            # Сброс позиции (простая логика для примера)
-            # В реальности тут нужно отслеживать PnL, но для простого бота сбрасываем флаг,
-            # если Ratio вернулся в норму (стал нейтральным)
-            elif self.positions[name] is not None:
-                if 0.8 < ratio < 1.2:
-                    self.positions[name] = None # Сброс, можно снова искать вход
-
-    def analyze(self):
-        self.check_market()
+            # Если сигнал пропал (давление ушло), сбрасываем позицию (виртуально)
+            # Чтобы бот мог снова дать сигнал, если снова появится стена
+            elif self.positions[name] and 0.8 < ratio < 1.2:
+                self.positions[name] = None
