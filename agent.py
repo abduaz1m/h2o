@@ -1,14 +1,11 @@
 import os
 import requests
 import time
-import pandas as pd
-import pandas_ta as ta
-import xml.etree.ElementTree as ET
 from openai import OpenAI
 
 # --- КОНФИГУРАЦИЯ ---
-OKX_URL = "https://www.okx.com/api/v5/market/candles"
-NEWS_RSS_URL = "https://cointelegraph.com/rss"
+# Используем Ticker endpoint для получения данных стакана (Level 1)
+OKX_TICKER_URL = "https://www.okx.com/api/v5/market/ticker"
 
 # 1. 🚜 СПИСОК ФЬЮЧЕРСОВ
 FUTURES_SYMBOLS = {
@@ -26,17 +23,9 @@ FUTURES_SYMBOLS = {
     "TIA":    {"id": "TIA-USDT-SWAP",    "lev": 7},
     "FET":    {"id": "FET-USDT-SWAP",    "lev": 5},
     "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 5},
+    "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3},
     "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3},
-}
-
-# 2. 🏦 СПИСОК СПОТА
-SPOT_SYMBOLS = {
-    "BTC": "BTC-USDT",
-    "ETH": "ETH-USDT",
-    "SOL": "SOL-USDT",
-    "TON": "TON-USDT",
-    "SUI": "SUI-USDT",
-    "BNB": "BNB-USDT",
+    "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
 }
 
 class TradingAgent:
@@ -46,9 +35,6 @@ class TradingAgent:
         # Подключение к DeepSeek
         self.client = OpenAI(api_key=openai_key, base_url="https://api.deepseek.com")
         self.positions = {name: None for name in FUTURES_SYMBOLS}
-        self.spot_positions = {name: None for name in SPOT_SYMBOLS}
-        self.last_news = ""
-        self.last_news_time = 0
 
     def send(self, text):
         try:
@@ -60,67 +46,54 @@ class TradingAgent:
         except Exception:
             pass
 
-    # 📰 НОВЫЙ МЕТОД: ЧТЕНИЕ НОВОСТЕЙ
-    def get_news(self):
-        # Кэшируем новости на 10 минут, чтобы не спамить запросами
-        if time.time() - self.last_news_time < 600 and self.last_news:
-            return self.last_news
-        
+    # 📊 ПОЛУЧЕНИЕ ДАННЫХ Ticker (ЦЕНА + BID/ASK)
+    def get_ticker_data(self, symbol):
         try:
-            print("📰 Fetching latest crypto news...")
-            r = requests.get(NEWS_RSS_URL, timeout=5)
-            root = ET.fromstring(r.content)
-            headlines = []
-            # Берем 3 последних заголовка
-            for item in root.findall('.//item')[:3]:
-                title = item.find('title').text
-                headlines.append(f"- {title}")
-            
-            self.last_news = "\n".join(headlines)
-            self.last_news_time = time.time()
-            return self.last_news
-        except Exception as e:
-            print(f"⚠️ News Error: {e}")
-            return "Market news unavailable."
-
-    def get_candles(self, symbol, bar, limit=100):
-        try:
-            r = requests.get(OKX_URL, params={"instId": symbol, "bar": bar, "limit": limit}, timeout=10)
+            r = requests.get(OKX_TICKER_URL, params={"instId": symbol}, timeout=5)
             data = r.json().get("data", [])
             if not data: return None
-            df = pd.DataFrame(data, columns=["ts", "o", "h", "l", "c", "v", "volCcy", "volCcyQuote", "confirm"])
-            df = df.iloc[::-1].reset_index(drop=True)
-            df[["o", "h", "l", "c", "v"]] = df[["o", "h", "l", "c", "v"]].astype(float)
-            return df
+            
+            ticker = data[0]
+            return {
+                "price": float(ticker["last"]),      # Последняя цена сделки
+                "bid_px": float(ticker["bidPx"]),    # Цена покупки (лучшая)
+                "bid_sz": float(ticker["bidSz"]),    # Объем на покупку (стенка)
+                "ask_px": float(ticker["askPx"]),    # Цена продажи (лучшая)
+                "ask_sz": float(ticker["askSz"]),    # Объем на продажу (стенка)
+            }
         except Exception:
             return None
 
-    # 🔥 AI СТРАТЕГИЯ: TECH + FUNDAMENTAL
-    def ask_ai(self, mode, symbol, price, rsi, adx, trend, direction, news_summary):
-        strategy_name = "FUNDAMENTAL_HEDGE"
+    # 🔥 AI: ЧТЕНИЕ ПОТОКА ОРДЕРОВ (TAPE READING)
+    def ask_ai_orderflow(self, symbol, price, bid_sz, ask_sz, ratio, imbalance):
+        strategy_name = "ORDER_FLOW_SCALPER"
         
-        print(f"🧠 Analyzing {symbol} ({direction}) with News Context...")
+        print(f"🧠 DeepSeek reading Tape for {symbol} | Ratio: {ratio}...")
 
-        json_template = '{"Risk": int, "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "text"}'
+        json_template = '{"Confidence": int, "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "text"}'
         
         system_prompt = (
-            f"Ты — элитный крипто-аналитик. Ты совмещаешь Технический анализ и Фундаментальные новости.\n"
-            f"ЗАДАЧА: Подтвердить или Отклонить сделку ({direction}).\n\n"
-            f"ВХОДНЫЕ ДАННЫЕ:\n"
-            f"1. ТЕХНИКА: RSI={rsi}, ADX={adx}, Тренд={trend}.\n"
-            f"2. НОВОСТИ (Последние заголовки):\n{news_summary}\n\n"
-            f"ПРАВИЛА ПРИНЯТИЯ РЕШЕНИЙ:\n"
-            f"1. ГЛАВНОЕ: Если новости КРАЙНЕ негативные (взлом, суд, запрет) -> ИГНОРИРУЙ любой сигнал BUY. Твой вердикт WAIT.\n"
-            f"2. Если новости позитивные (партнерство, принятие ETF) -> BUY сигнал усиливается.\n"
-            f"3. Если новостей нет или они нейтральные -> Работай чисто по технике (RSI, EMA).\n"
-            f"4. Для SHORT: Плохие новости = Отличный сигнал.\n"
+            f"Ты — HFT алгоритм (High Frequency Trading). Ты анализируешь Bid-Ask Ratio и дисбаланс ликвидности.\n"
+            f"ТВОЯ ЗАДАЧА: Определить, кто давит на цену прямо сейчас — Покупатели или Продавцы.\n\n"
+            f"ДАННЫЕ:\n"
+            f"- Bid Volume (Покупатели): Объем заявок на покупку в моменте.\n"
+            f"- Ask Volume (Продавцы): Объем заявок на продажу в моменте.\n"
+            f"- Ratio: Bid / Ask.\n\n"
+            f"ПРАВИЛА:\n"
+            f"1. Ratio > 2.0 (Покупателей в 2 раза больше) -> Вероятный РОСТ (BUY).\n"
+            f"2. Ratio < 0.5 (Продавцов в 2 раза больше) -> Вероятное ПАДЕНИЕ (SELL).\n"
+            f"3. Если Ratio около 1.0 (1.0 - 1.3) -> Рынок в равновесии -> WAIT.\n"
+            f"4. Игнорируй мелкие объемы, ищи большие 'стенки'.\n"
             f"ФОРМАТ ОТВЕТА (JSON): {json_template}"
         )
 
         user_prompt = (
             f"Asset: {symbol}\n"
-            f"Price: {price}\n"
-            f"Setup: {direction} Request\n"
+            f"Current Price: {price}\n"
+            f"Bid Size (Buyers): {bid_sz}\n"
+            f"Ask Size (Sellers): {ask_sz}\n"
+            f"Bid-Ask Ratio: {ratio}\n"
+            f"Imbalance Status: {imbalance}\n"
         )
 
         for i in range(2):
@@ -131,8 +104,8 @@ class TradingAgent:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=250,
-                    temperature=0.2
+                    max_tokens=150,
+                    temperature=0.1 # Нужна максимальная математическая точность
                 )
                 content = response.choices[0].message.content
                 content = content.replace("```json", "").replace("```", "").strip()
@@ -143,156 +116,91 @@ class TradingAgent:
         
         return "Skip", strategy_name
 
-    # --- ФЬЮЧЕРСЫ (15m, 30m, 1H) ---
-    def check_futures(self):
-        print("--- 🚀 Checking Futures (Smart + News) ---")
-        
-        # Получаем новости один раз для всего цикла проверки
-        current_news = self.get_news()
-        
-        timeframes = ["15m", "30m", "1H"]
+    # --- АНАЛИЗ РЫНКА ---
+    def check_market(self):
+        print("--- ⚖️ Checking Order Flow & Bid-Ask Ratio ---")
         
         for name, info in FUTURES_SYMBOLS.items():
             symbol = info["id"]
             lev = info["lev"]
             
-            if self.positions[name] is not None:
-                continue
+            # Задержка, чтобы не превысить лимиты API
+            time.sleep(0.2) 
 
-            for tf in timeframes:
-                time.sleep(0.15)
-                df = self.get_candles(symbol, tf, limit=100)
-                if df is None or len(df) < 60: continue
+            # 1. Получаем "сырые" данные с рынка
+            ticker = self.get_ticker_data(symbol)
+            if not ticker: continue
 
-                df["ema_fast"] = ta.ema(df["c"], length=9)
-                df["ema_trend"] = ta.ema(df["c"], length=50)
-                df["rsi"] = ta.rsi(df["c"], length=14)
-                df["atr"] = ta.atr(df["h"], df["l"], df["c"], length=14)
-                try:
-                    df["adx"] = ta.adx(df["h"], df["l"], df["c"], length=14)["ADX_14"]
-                except: continue
-                
-                curr = df.iloc[-1]
-                prev = df.iloc[-2]
+            price = ticker["price"]
+            bid_sz = ticker["bid_sz"]
+            ask_sz = ticker["ask_sz"]
 
-                adx_val = curr["adx"]
-                rsi_val = curr["rsi"]
-                price = curr["c"]
+            # 2. Считаем Bid-Ask Ratio
+            # Защита от деления на ноль
+            if ask_sz == 0: ask_sz = 0.0001 
+            ratio = round(bid_sz / ask_sz, 2)
 
-                if pd.isna(curr["ema_trend"]) or pd.isna(rsi_val): continue
+            # 3. Определяем дисбаланс
+            imbalance = "NEUTRAL"
+            signal_type = None
 
-                signal_type = None
-                
-                # --- ЛОГИКА ВХОДА ---
-                # 1. LONG: Пробой EMA 9 снизу вверх + Тренд EMA 50 UP
-                if (price > curr["ema_trend"] and          
-                    prev["c"] < prev["ema_fast"] and       
-                    curr["c"] > curr["ema_fast"] and       
-                    40 < rsi_val < 68 and                  
-                    adx_val > 15):                         
-                    signal_type = "LONG"
-
-                # 2. SHORT: Пробой EMA 9 сверху вниз + Тренд EMA 50 DOWN
-                elif (price < curr["ema_trend"] and        
-                      prev["c"] > prev["ema_fast"] and     
-                      curr["c"] < curr["ema_fast"] and     
-                      32 < rsi_val < 60 and                
-                      adx_val > 15):
-                    signal_type = "SHORT"
-
-                if signal_type:
-                    # 🔥 ТЕПЕРЬ ПЕРЕДАЕМ НОВОСТИ В AI
-                    ai_verdict, strategy_used = self.ask_ai(
-                        "FUTURES", name, price, round(rsi_val,1), round(adx_val,1), 
-                        f"{tf} Trend Breakout", signal_type, current_news
-                    )
-                    
-                    if "WAIT" in str(ai_verdict).upper(): 
-                        print(f"⛔ AI blocked {name} based on Analysis/News")
-                        continue
-
-                    atr_mult_sl = 1.5 
-                    atr_mult_tp = 5.0 # Увеличенный тейк для профита
-                    
-                    if signal_type == "LONG":
-                        tp = price + (curr["atr"] * atr_mult_tp)
-                        sl = price - (curr["atr"] * atr_mult_sl)
-                        emoji = "🟢"
-                        title = "NEWS+TECH LONG"
-                    else:
-                        tp = price - (curr["atr"] * atr_mult_tp)
-                        sl = price + (curr["atr"] * atr_mult_sl)
-                        emoji = "🔴"
-                        title = "NEWS+TECH SHORT"
-
-                    msg = (
-                        f"🗞️ **{title}** {emoji}\n"
-                        f"#{name} — {tf}\n"
-                        f"🧠 Strat: **{strategy_used}**\n"
-                        f"⚙️ Lev: {lev}x\n"
-                        f"📊 RSI: {round(rsi_val,1)}\n"
-                        f"💰 Entry: {price}\n🎯 TP: {round(tp,4)}\n🛑 SL: {round(sl,4)}\n"
-                        f"💬 AI Verdict: {ai_verdict}"
-                    )
-                    self.send(msg)
-                    self.positions[name] = signal_type 
-                    time.sleep(2)
-                    break 
-
-    # --- СПОТ (1D, 3D, 1W) ---
-    def check_spot(self):
-        print("--- 🏦 Checking Spot ---")
-        current_news = self.get_news() # Новости для спота тоже важны
-        timeframes = ["1D", "3D", "1W"]
-        
-        for name, symbol in SPOT_SYMBOLS.items():
-            if self.spot_positions[name] == "BUY": continue
-
-            for tf in timeframes:
-                time.sleep(0.1)
-                df = self.get_candles(symbol, tf, limit=300)
-                if df is None or len(df) < 205: continue
-
-                try:
-                    rsi = ta.rsi(df["c"], length=14).iloc[-1]
-                    ema200 = ta.ema(df["c"], length=200).iloc[-1]
-                    price = df["c"].iloc[-1]
-                    if pd.isna(ema200): continue
-                except: continue
-
-                is_dip = False
-                setup = ""
-
-                if price > ema200 and rsi < 40:
-                    is_dip = True
-                    setup = f"Trend Pullback ({tf})"
-                elif rsi < 30:
-                    is_dip = True
-                    setup = f"Oversold Bounce ({tf})"
-
-                if is_dip:
-                    # Передаем новости и сюда
-                    ai_verdict, strategy_used = self.ask_ai(
-                        "SPOT", name, price, round(rsi,1), 0, setup, "LONG", current_news
-                    )
-                    
-                    if "WAIT" in str(ai_verdict).upper(): continue
-
-                    msg = (
-                        f"💎 **SPOT INVEST**\n#{name} — {tf} 🔵\n"
-                        f"📉 RSI: {round(rsi, 1)}\n"
-                        f"🧠 Strat: {strategy_used}\n"
-                        f"💰 Price: {price}\n"
-                        f"💬 AI: {ai_verdict}"
-                    )
-                    self.send(msg)
-                    self.spot_positions[name] = "BUY"
-                    time.sleep(2)
-                    break 
+            # Фильтры для первичного отсева (чтобы не дергать AI зря)
+            if ratio >= 2.5: # Покупателей в 2.5 раза больше
+                imbalance = "STRONG_BUY_WALL"
+                signal_type = "LONG"
+            elif ratio <= 0.4: # Продавцов в 2.5 раза больше
+                imbalance = "STRONG_SELL_WALL"
+                signal_type = "SHORT"
             
-            if self.spot_positions[name] == "BUY":
-                 pass 
+            # Если есть сильный перекос в стакане, зовем AI
+            if signal_type and self.positions[name] is None:
+                
+                ai_verdict, strategy_used = self.ask_ai_orderflow(
+                    name, price, bid_sz, ask_sz, ratio, imbalance
+                )
+                
+                # Если AI сказал WAIT - пропускаем
+                if "WAIT" in str(ai_verdict).upper(): 
+                    continue
+
+                # Расчет простых целей (скальпинг)
+                # Берем фиксированный % так как ATR у нас больше нет
+                take_profit_pct = 0.015  # 1.5% движения цены
+                stop_loss_pct = 0.008    # 0.8% стоп
+
+                if signal_type == "LONG":
+                    tp = price * (1 + take_profit_pct)
+                    sl = price * (1 - stop_loss_pct)
+                    emoji = "🟢"
+                    title = "BUY PRESSURE"
+                    desc = f"Buyers dominate x{ratio}"
+                else:
+                    tp = price * (1 - take_profit_pct)
+                    sl = price * (1 + stop_loss_pct)
+                    emoji = "🔴"
+                    title = "SELL PRESSURE"
+                    desc = f"Sellers dominate (Ratio {ratio})"
+
+                msg = (
+                    f"⚡ **{title}** {emoji}\n"
+                    f"#{name} — Order Flow\n"
+                    f"📊 Bid/Ask Ratio: **{ratio}**\n"
+                    f"🧱 Imbalance: {desc}\n"
+                    f"💰 Price: {price}\n"
+                    f"🎯 TP: {round(tp,5)}\n🛑 SL: {round(sl,5)}\n"
+                    f"🤖 AI Verdict: {ai_verdict}"
+                )
+                self.send(msg)
+                
+                # Ставим "блокировку" на вход по этой монете на короткое время
+                self.positions[name] = signal_type 
+
+            # Сброс позиции (простая логика для примера)
+            # В реальности тут нужно отслеживать PnL, но для простого бота сбрасываем флаг,
+            # если Ratio вернулся в норму (стал нейтральным)
+            elif self.positions[name] is not None:
+                if 0.8 < ratio < 1.2:
+                    self.positions[name] = None # Сброс, можно снова искать вход
 
     def analyze(self):
-        self.check_futures()
-        self.check_spot()
+        self.check_market()
