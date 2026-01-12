@@ -8,42 +8,23 @@ from openai import OpenAI
 # --- КОНФИГУРАЦИЯ ---
 OKX_URL = "https://www.okx.com/api/v5/market/candles"
 
-# 1. 🚜 СПИСОК ФЬЮЧЕРСОВ
+# 1. 🚜 СПИСОК ФЬЮЧЕРСОВ (Только Kings)
 FUTURES_SYMBOLS = {
-    "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 10},
-    "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 10},
-    "SOL":    {"id": "SOL-USDT-SWAP",    "lev": 10},
-    "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 10},
-    "TON":    {"id": "TON-USDT-SWAP",    "lev": 7},
-    "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 7},
-    "SUI":    {"id": "SUI-USDT-SWAP",    "lev": 7},
-    "APT":    {"id": "APT-USDT-SWAP",    "lev": 7},
-    "LINK":   {"id": "LINK-USDT-SWAP",   "lev": 7},
-    "ARB":    {"id": "ARB-USDT-SWAP",    "lev": 7},
-    "OP":     {"id": "OP-USDT-SWAP",     "lev": 7},
-    "TIA":    {"id": "TIA-USDT-SWAP",    "lev": 7},
-    "FET":    {"id": "FET-USDT-SWAP",    "lev": 5},
-    "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 5},
-    "PEPE":   {"id": "PEPE-USDT-SWAP",   "lev": 3},
-    "WIF":    {"id": "WIF-USDT-SWAP",    "lev": 3},
-    "DOGE":   {"id": "DOGE-USDT-SWAP",    "lev": 3},
+    "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 20}, # Плечо 20x для BTC
+    "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 20}, # Плечо 20x для ETH
 }
 
 # 2. 🏦 СПИСОК СПОТА
 SPOT_SYMBOLS = {
     "BTC": "BTC-USDT",
     "ETH": "ETH-USDT",
-    "SOL": "SOL-USDT",
-    "TON": "TON-USDT",
-    "SUI": "SUI-USDT",
-    "BNB": "BNB-USDT",
 }
 
 class TradingAgent:
     def __init__(self, bot_token, chat_id, openai_key):
         self.bot_token = bot_token
         self.chat_id = chat_id
-        # Подключение к DeepSeek (совместим с OpenAI SDK)
+        # Подключение к DeepSeek
         self.client = OpenAI(api_key=openai_key, base_url="https://api.deepseek.com")
         self.positions = {name: None for name in FUTURES_SYMBOLS}
         self.spot_positions = {name: None for name in SPOT_SYMBOLS}
@@ -70,36 +51,34 @@ class TradingAgent:
         except Exception:
             return None
 
-    # 🔥 УЛУЧШЕННЫЙ ПРОМПТ ДЛЯ DEEPSEEK
+    # 🔥 СПЕЦИАЛИЗИРОВАННЫЙ ПРОМПТ (BTC/ETH EXPERT)
     def ask_ai(self, mode, symbol, price, rsi, adx, trend, direction):
-        strategy_name = "DEEPSEEK_ALPHA"
+        strategy_name = "MARKET_MAKER_LOGIC"
         
-        print(f"🧠 AI Analyzing {symbol} ({direction})...")
+        print(f"🧠 Checking {symbol} ({direction})...")
 
-        # Более строгий JSON формат
-        json_template = '{"Confidence": int (0-100), "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "Short phrase"}'
+        json_template = '{"Confidence": int (0-100), "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "Max 10 words"}'
         
-        # Инструкция: Быть решительным, не бояться волатильности
+        # Промпт заточен под поведение Биткоина и Эфира
         system_prompt = (
-            f"Ты — Агрессивный Крипто-Трейдер. Твоя цель — МАКСИМИЗАЦИЯ ПРИБЫЛИ.\n"
-            f"Рынок волатилен, и это ХОРОШО. Не бойся рисковать.\n\n"
+            f"Ты — Эксперт по BTC и ETH. Ты торгуешь только главными активами.\n"
+            f"Твоя философия: 'Биткоин диктует тренд'.\n\n"
             f"ВХОДНЫЕ ДАННЫЕ:\n"
             f"- Актив: {symbol}\n"
-            f"- Направление: {direction}\n"
-            f"- RSI: {rsi} (30-70 = Норма, >70 = Памп, <30 = Дно)\n"
-            f"- ADX: {adx} (Сила тренда)\n\n"
-            f"ПРАВИЛА:\n"
-            f"1. Если RSI > 70, но тренд сильный (ADX > 30) — ЭТО BUY (Памп).\n"
-            f"2. Если RSI < 30 — ЭТО BUY (Отскок).\n"
-            f"3. Если индикаторы противоречат, но тренд явный — ВЕРЬ ТРЕНДУ.\n"
-            f"4. Не пиши WAIT, если есть хоть малейший шанс заработать.\n"
+            f"- Паттерн: {direction}\n"
+            f"- Индикаторы: RSI={rsi}, ADX={adx}\n\n"
+            f"ПРАВИЛА ПРИНЯТИЯ РЕШЕНИЙ:\n"
+            f"1. BTC/ETH редко делают ложные движения на сильном импульсе (ADX > 25). Верь тренду.\n"
+            f"2. Если RSI > 75 — это кульминация покупок. Будь осторожен с Лонгами (лучше WAIT или SHORT скальп).\n"
+            f"3. Если RSI < 25 — это паническая распродажа. Ищи вход в LONG (отскок).\n"
+            f"4. Для BTC важен пробой уровня. Если сигнал подтвержден объемами или ADX — ВХОДИ.\n"
             f"ФОРМАТ ОТВЕТА (JSON): {json_template}"
         )
 
         user_prompt = (
-            f"Current Price: {price}\n"
-            f"Technical Setup: {direction} Signal detected via EMA Cross.\n"
-            f"Make a decision."
+            f"Market Update: {symbol} is showing a {direction} setup.\n"
+            f"Price: {price}\n"
+            f"Make a professional decision."
         )
 
         for i in range(2):
@@ -110,8 +89,8 @@ class TradingAgent:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=200,
-                    temperature=0.3 # Немного креативности, но в рамках правил
+                    max_tokens=180,
+                    temperature=0.2 # Низкая температура для строгости
                 )
                 content = response.choices[0].message.content
                 content = content.replace("```json", "").replace("```", "").strip()
@@ -124,14 +103,13 @@ class TradingAgent:
 
     # --- ФЬЮЧЕРСЫ (15m, 1H) ---
     def check_futures(self):
-        print("--- 🚀 Checking Futures ---")
-        timeframes = ["15m", "1H"] # Проверяем два таймфрейма
+        print("--- 🚀 Futures: BTC & ETH Strategy ---")
+        timeframes = ["15m", "1H"]
         
         for name, info in FUTURES_SYMBOLS.items():
             symbol = info["id"]
             lev = info["lev"]
             
-            # Если позиция уже есть, не спамим (но можно доработать для докупки)
             if self.positions[name] is not None:
                 continue
 
@@ -140,6 +118,7 @@ class TradingAgent:
                 df = self.get_candles(symbol, tf, limit=100)
                 if df is None or len(df) < 50: continue
 
+                # Классический набор индикаторов для BTC
                 df["ema_f"] = ta.ema(df["c"], length=9)
                 df["ema_s"] = ta.ema(df["c"], length=21)
                 df["rsi"] = ta.rsi(df["c"], length=14)
@@ -149,8 +128,6 @@ class TradingAgent:
                 except: continue
                 
                 curr = df.iloc[-1]
-                prev = df.iloc[-2]
-
                 adx_val = curr["adx"]
                 rsi_val = curr["rsi"]
                 price = curr["c"]
@@ -159,35 +136,35 @@ class TradingAgent:
 
                 signal_type = None
                 
-                # --- ЛОГИКА СИГНАЛОВ (Расширенная) ---
+                # --- ЛОГИКА ДЛЯ MAJOR PAIRS ---
                 
-                # 1. LONG (EMA Cross UP или Отскок от дна)
-                # Условие: Быстрая EMA выше медленной ИЛИ RSI перепродан (<35)
-                # Фильтр: RSI не должен быть экстремально перекуплен (>85), кроме супер-пампов
-                if (curr["ema_f"] > curr["ema_s"] and rsi_val < 85):
-                    signal_type = "LONG"
-                elif (rsi_val < 30): # Ловля ножей (агрессивно)
-                    signal_type = "LONG_DIP"
+                # 1. LONG:
+                # BTC любит тренды. Если EMA пересеклись + RSI не на потолке
+                if (curr["ema_f"] > curr["ema_s"] and rsi_val < 80):
+                    signal_type = "LONG_TREND"
+                # Ловля "Сквизов" (резких падений)
+                elif (rsi_val < 28): 
+                    signal_type = "LONG_DIP_SNIPER"
 
-                # 2. SHORT (EMA Cross DOWN или Вершина)
-                elif (curr["ema_f"] < curr["ema_s"] and rsi_val > 15):
-                    signal_type = "SHORT"
-                elif (rsi_val > 80): # Продажа на хаях
-                    signal_type = "SHORT_TOP"
+                # 2. SHORT:
+                elif (curr["ema_f"] < curr["ema_s"] and rsi_val > 20):
+                    signal_type = "SHORT_TREND"
+                # Ловля вершин
+                elif (rsi_val > 82): 
+                    signal_type = "SHORT_TOP_SNIPER"
 
-                # Если есть хоть какой-то намек на сигнал — зовем AI
                 if signal_type:
                     ai_verdict, strategy_used = self.ask_ai(
                         "FUTURES", name, price, round(rsi_val,1), round(adx_val,1), 
-                        f"{tf} Trend", signal_type
+                        f"{tf}", signal_type
                     )
                     
-                    # Фильтр ответов AI
                     verdict_up = str(ai_verdict).upper()
                     if "WAIT" in verdict_up or "SKIP" in verdict_up: 
                         continue
 
-                    atr_mult = 3.0
+                    # Настройки TP/SL для BTC/ETH (чуть шире, чем для альтов)
+                    atr_mult = 3.5 
                     
                     if "LONG" in signal_type:
                         tp = price + (curr["atr"] * atr_mult)
@@ -199,22 +176,23 @@ class TradingAgent:
                         emoji = "🔴"
 
                     msg = (
-                        f"⚡ **SIGNAL: {signal_type}** {emoji}\n"
+                        f"👑 **MAJOR SIGNAL: {signal_type}** {emoji}\n"
                         f"#{name} — {tf}\n"
                         f"🧠 AI: **{strategy_used}**\n"
+                        f"⚙️ Lev: {lev}x\n"
                         f"📊 RSI: {round(rsi_val,1)} | ADX: {round(adx_val,1)}\n"
                         f"💰 Price: {price}\n"
-                        f"🎯 TP: {round(tp,4)}\n🛑 SL: {round(sl,4)}\n"
+                        f"🎯 TP: {round(tp,2)}\n🛑 SL: {round(sl,2)}\n"
                         f"📝 Verdict: {ai_verdict}"
                     )
                     self.send(msg)
                     self.positions[name] = signal_type 
                     time.sleep(2)
-                    break # Если нашли сигнал на одном ТФ, идем к следующей монете
+                    break 
 
     # --- СПОТ (4H) ---
     def check_spot(self):
-        print("--- 🏦 Checking Spot ---")
+        print("--- 🏦 Spot: Accumulation ---")
         for name, symbol in SPOT_SYMBOLS.items():
             if self.spot_positions[name] == "BUY": continue
             
@@ -225,14 +203,14 @@ class TradingAgent:
             rsi = ta.rsi(df["c"], length=14).iloc[-1]
             price = df["c"].iloc[-1]
 
-            # Упрощенная логика для спота: просто покупаем на просадках
-            if rsi < 40:
-                ai_verdict, strategy_used = self.ask_ai("SPOT", name, price, round(rsi,1), 0, "Oversold", "LONG")
+            # Для Спота BTC/ETH берем только хорошие просадки
+            if rsi < 35:
+                ai_verdict, strategy_used = self.ask_ai("SPOT", name, price, round(rsi,1), 0, "DIP", "ACCUMULATE")
                 
                 if "BUY" in str(ai_verdict).upper():
                     self.send(
-                        f"💎 **SPOT INVEST**\n#{name}\n"
-                        f"📉 RSI: {round(rsi, 1)}\n"
+                        f"🏦 **WHALE ACCUMULATION**\n#{name}\n"
+                        f"📉 RSI: {round(rsi, 1)} (Oversold)\n"
                         f"💰 Price: {price}\n"
                         f"🤖 AI: {ai_verdict}"
                     )
