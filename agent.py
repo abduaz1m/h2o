@@ -11,7 +11,17 @@ OKX_URL = "https://www.okx.com/api/v5/market/candles"
 # 1. 🚜 СПИСОК ФЬЮЧЕРСОВ (Только Kings)
 FUTURES_SYMBOLS = {
     "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 20}, # Плечо 20x для BTC
-    "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 20}, # Плечо 20x для ETH
+    "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 20},
+    "SOL":    {"id": "SOL-USDT-SWAP",    "lev": 20},
+    "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 20},
+    "TON":    {"id": "TON-USDT-SWAP",    "lev": 20},
+    "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 20},
+    "SUI":    {"id": "SUI-USDT-SWAP",    "lev": 20},
+    "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 20},
+    "RENDER": {"id": "RENDER-USDT-SWAP", "lev": 20},
+    "LIT":    {"id": "LIT-USDT-SWAP",    "lev": 20},
+    "ZEC":    {"id": "ZEC-USDT-SWAP",    "lev": 20},
+    "LAB":    {"id": "LAB-USDT-SWAP",    "lev": 20},# Плечо 20x для ETH
 }
 
 # 2. 🏦 СПИСОК СПОТА
