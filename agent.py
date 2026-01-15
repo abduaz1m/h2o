@@ -7,21 +7,12 @@ from openai import OpenAI
 
 # --- КОНФИГУРАЦИЯ ---
 OKX_URL = "https://www.okx.com/api/v5/market/candles"
+DEBUG_MODE = True  # Включили подробный лог
 
-# 1. 🚜 СПИСОК ФЬЮЧЕРСОВ (Только Ликвидные Мажоры для Скальпинга)
+# 1. 🚜 СПИСОК ФЬЮЧЕРСОВ
 FUTURES_SYMBOLS = {
-    "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 20}, # Плечо 20x
+    "BTC":    {"id": "BTC-USDT-SWAP",    "lev": 20},
     "ETH":    {"id": "ETH-USDT-SWAP",    "lev": 20},
-    "SOL":    {"id": "SOL-USDT-SWAP",    "lev": 20},
-    "AVAX":   {"id": "AVAX-USDT-SWAP",   "lev": 20},
-    "TON":    {"id": "TON-USDT-SWAP",    "lev": 20},
-    "BNB":    {"id": "BNB-USDT-SWAP",    "lev": 20},
-    "SUI":    {"id": "SUI-USDT-SWAP",    "lev": 20},
-    "WLD":    {"id": "WLD-USDT-SWAP",    "lev": 20},
-    "RENDER": {"id": "RENDER-USDT-SWAP", "lev": 20},
-    "LIT":    {"id": "LIT-USDT-SWAP",    "lev": 20},
-    "ZEC":    {"id": "ZEC-USDT-SWAP",    "lev": 20},
-    "LAB":    {"id": "LAB-USDT-SWAP",    "lev": 20},# Плечо 20x
 }
 
 # 2. 🏦 СПИСОК СПОТА
@@ -34,10 +25,36 @@ class TradingAgent:
     def __init__(self, bot_token, chat_id, openai_key):
         self.bot_token = bot_token
         self.chat_id = chat_id
-        # Подключаем DeepSeek
         self.client = OpenAI(api_key=openai_key, base_url="https://api.deepseek.com")
         self.positions = {name: None for name in FUTURES_SYMBOLS}
         self.spot_positions = {name: None for name in SPOT_SYMBOLS}
+        
+        # 🔥 ПРОВЕРКА ПОДКЛЮЧЕНИЯ ПРИ СТАРТЕ
+        self.test_connection()
+
+    def test_connection(self):
+        print("🔍 DIAGNOSTIC: Testing connections...")
+        # 1. Проверка OKX
+        try:
+            r = requests.get(OKX_URL, params={"instId": "BTC-USDT-SWAP", "bar": "15m", "limit": 1}, timeout=5)
+            if r.status_code == 200:
+                print("✅ OKX API: Connected (Data received)")
+            else:
+                print(f"❌ OKX API: Error {r.status_code}")
+        except Exception as e:
+            print(f"❌ OKX API: Connection Failed ({e})")
+
+        # 2. Проверка DeepSeek
+        try:
+            print("⏳ Testing DeepSeek AI...")
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": "Say 'OK'"}],
+                max_tokens=5
+            )
+            print(f"✅ DeepSeek API: Connected (Answer: {response.choices[0].message.content})")
+        except Exception as e:
+            print(f"❌ DeepSeek API: Error ({e}) - Check your API KEY!")
 
     def send(self, text):
         try:
@@ -46,53 +63,40 @@ class TradingAgent:
                 json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, 
                 timeout=5
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"❌ Telegram Error: {e}")
 
     def get_candles(self, symbol, bar, limit=100):
         try:
             r = requests.get(OKX_URL, params={"instId": symbol, "bar": bar, "limit": limit}, timeout=10)
             data = r.json().get("data", [])
-            if not data: return None
+            if not data: 
+                print(f"⚠️ No data for {symbol}")
+                return None
             df = pd.DataFrame(data, columns=["ts", "o", "h", "l", "c", "v", "volCcy", "volCcyQuote", "confirm"])
             df = df.iloc[::-1].reset_index(drop=True)
             df[["o", "h", "l", "c", "v"]] = df[["o", "h", "l", "c", "v"]].astype(float)
             return df
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ Error fetching candles: {e}")
             return None
 
-    # 🔥 ПРОМПТ ДЛЯ СКАЛЬПИНГА (SCALPING AGENT)
     def ask_ai(self, mode, symbol, price, rsi, adx, trend, direction):
-        strategy_name = "SCALP_ALGO_V1"
+        strategy_name = "SCALP_V2_DEBUG"
         
-        print(f"⚡ Scalper analyzing {symbol} ({direction})...")
+        print(f"🧠 AI asking about {symbol}...")
 
-        # Формат ответа строго JSON
-        json_template = '{"Confidence": int (0-100), "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "Brief trigger explanation"}'
+        json_template = '{"Confidence": int, "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "text"}'
         
-        # СИСТЕМНЫЙ ПРОМПТ
         system_prompt = (
-            f"Ты — Высокочастотный Скальпинг-Алгоритм (HFT Scalper).\n"
-            f"Твоя цель: Забирать короткие движения (0.5% - 1.5%) с высокой точностью.\n"
-            f"Твой враг: Сомнения и передерживание позиций.\n\n"
-            f"РЫНОЧНЫЕ УСЛОВИЯ:\n"
-            f"- Актив: {symbol}\n"
-            f"- Паттерн: {direction}\n"
-            f"- RSI (14): {rsi}\n"
-            f"- ADX (14): {adx} (Сила тренда)\n\n"
-            f"ПРАВИЛА ПРИНЯТИЯ РЕШЕНИЙ:\n"
-            f"1. ИМПУЛЬС (Momentum): Если ADX > 25, тренд сильный. Игнорируй перекупленность RSI (до 80), торгуй ПО тренду.\n"
-            f"2. ОТСКОК (Reversion): Если RSI < 25 (экстремально низко) -> Входи в LONG на отскок.\n"
-            f"3. ПРОБОЙ (Breakout): Если цена пробила EMA на объеме (Trend UP) -> BUY.\n"
-            f"4. ФИЛЬТР: Если ADX < 15 (рынок спит) -> WAIT.\n"
-            f"ФОРМАТ ОТВЕТА (JSON): {json_template}"
+            f"Ты — Скальпер. Рынок может быть тихим.\n"
+            f"Твоя задача: Найти ЛЮБУЮ возможность заработать 0.5%.\n"
+            f"Не будь слишком строгим. Если тренд есть — действуй.\n"
+            f"Context: {symbol}, {direction}, RSI={rsi}, ADX={adx}.\n"
+            f"Format: {json_template}"
         )
-
-        user_prompt = (
-            f"Setup Detected: {direction}\n"
-            f"Current Price: {price}\n"
-            f"Action required immediately."
-        )
+        
+        user_prompt = f"Price: {price}. Should we enter {direction}?"
 
         for i in range(2):
             try:
@@ -103,34 +107,38 @@ class TradingAgent:
                         {"role": "user", "content": user_prompt}
                     ],
                     max_tokens=150,
-                    temperature=0.1 # Минимум фантазии, максимум логики
+                    temperature=0.3
                 )
                 content = response.choices[0].message.content
                 content = content.replace("```json", "").replace("```", "").strip()
                 return content, strategy_name
-            except Exception:
+            except Exception as e:
+                print(f"❌ AI Request Failed: {e}")
                 time.sleep(1)
                 continue
         
         return "Skip", strategy_name
 
-    # --- ФЬЮЧЕРСЫ (15m и 5m для скальпинга) ---
     def check_futures(self):
-        print("--- ⚡ Checking Futures (Scalping Mode) ---")
-        # Скальперы смотрят 15m для фона и 5m для входа (но API OKX лимитирован, оставим 15m как базу)
-        timeframes = ["15m"] 
+        print("\n--- 🚀 Checking Futures (15m) ---")
+        timeframes = ["15m"]
         
         for name, info in FUTURES_SYMBOLS.items():
             symbol = info["id"]
             lev = info["lev"]
             
+            # 🔥 ВАЖНО: Сбрасываем позицию для теста, если она была "залипшей"
+            # В реальной торговле тут должна быть проверка PnL, но пока просто логируем
             if self.positions[name] is not None:
+                print(f"ℹ️ {name} is already in position ({self.positions[name]}). Skipping.")
+                # Раскомментируйте строчку ниже, если хотите принудительно сбросить память бота:
+                # self.positions[name] = None 
                 continue
 
             for tf in timeframes:
-                time.sleep(0.15)
+                time.sleep(0.2)
                 df = self.get_candles(symbol, tf, limit=100)
-                if df is None or len(df) < 50: continue
+                if df is None: continue
 
                 df["ema_f"] = ta.ema(df["c"], length=9)
                 df["ema_s"] = ta.ema(df["c"], length=21)
@@ -145,82 +153,73 @@ class TradingAgent:
                 rsi_val = curr["rsi"]
                 price = curr["c"]
 
-                if pd.isna(rsi_val): continue
+                # ЛОГИРУЕМ ИНДИКАТОРЫ В КОНСОЛЬ
+                print(f"🔎 {name}: RSI={round(rsi_val,1)} | ADX={round(adx_val,1)} | EMA_Diff={round(curr['ema_f'] - curr['ema_s'], 2)}")
 
                 signal_type = None
                 
-                # --- СКАЛЬПИНГ СЕТАПЫ ---
+                # --- ОСЛАБЛЕННЫЕ УСЛОВИЯ (LITE MODE) ---
                 
-                # 1. SCALP LONG (Тренд)
-                # Быстрая средняя выше медленной, RSI не перегрет (>85)
-                if (curr["ema_f"] > curr["ema_s"] and rsi_val < 82):
-                    signal_type = "SCALP_LONG"
+                # 1. EMA CROSS (Трендовая)
+                # Убрали RSI < 82, сделали мягче (RSI < 85)
+                # Убрали условие ADX для теста, пусть заходит на пересечении
+                if (curr["ema_f"] > curr["ema_s"]):
+                    signal_type = "LONG_CROSS"
                 
-                # 2. SCALP REVERSAL (Отскок от дна)
-                # RSI упал ниже 28 - ловим нож
-                elif (rsi_val < 28): 
-                    signal_type = "KNIFE_CATCH_LONG"
+                elif (curr["ema_f"] < curr["ema_s"]):
+                    signal_type = "SHORT_CROSS"
 
-                # 3. SCALP SHORT (Тренд вниз)
-                elif (curr["ema_f"] < curr["ema_s"] and rsi_val > 18):
-                    signal_type = "SCALP_SHORT"
+                # 2. RSI REVERSAL (Контртренд)
+                if rsi_val < 30:
+                    signal_type = "LONG_OVERSOLD"
+                elif rsi_val > 75: # Было 82, сделал мягче
+                    signal_type = "SHORT_OVERBOUGHT"
 
                 if signal_type:
+                    print(f"✨ Potential Signal found: {signal_type}. Asking AI...")
+                    
                     ai_verdict, strategy_used = self.ask_ai(
                         "FUTURES", name, price, round(rsi_val,1), round(adx_val,1), 
-                        f"{tf} timeframe", signal_type
+                        f"{tf}", signal_type
                     )
                     
+                    print(f"🤖 AI Verdict: {ai_verdict}")
+
                     verdict_up = str(ai_verdict).upper()
                     if "WAIT" in verdict_up or "SKIP" in verdict_up: 
+                        print("⛔ AI said WAIT. Not sending.")
                         continue
 
-                    # ТЕЙКИ И СТОПЫ (Короткие, скальперские)
-                    # TP: 2.5 ATR (быстрый профит)
-                    # SL: 1.5 ATR (жесткий стоп)
-                    atr_mult_tp = 2.5 
-                    atr_mult_sl = 1.5
+                    atr_mult = 2.0
                     
                     if "LONG" in signal_type:
-                        tp = price + (curr["atr"] * atr_mult_tp)
-                        sl = price - (curr["atr"] * atr_mult_sl)
+                        tp = price + (curr["atr"] * atr_mult)
+                        sl = price - (curr["atr"] * 1.5)
                         emoji = "🟢"
                     else:
-                        tp = price - (curr["atr"] * atr_mult_tp)
-                        sl = price + (curr["atr"] * atr_mult_sl)
+                        tp = price - (curr["atr"] * atr_mult)
+                        sl = price + (curr["atr"] * 1.5)
                         emoji = "🔴"
 
                     msg = (
-                        f"⚡ **SCALP SIGNAL: {signal_type}** {emoji}\n"
+                        f"⚡ **SIGNAL: {signal_type}** {emoji}\n"
                         f"#{name} — {tf}\n"
-                        f"🧠 AI: **{strategy_used}**\n"
-                        f"⚙️ Lev: {lev}x\n"
                         f"📊 RSI: {round(rsi_val,1)} | ADX: {round(adx_val,1)}\n"
-                        f"💰 Entry: {price}\n🎯 TP: {round(tp,2)}\n🛑 SL: {round(sl,2)}\n"
-                        f"📝 Verdict: {ai_verdict}"
+                        f"💰 Price: {price}\n"
+                        f"🎯 TP: {round(tp,2)}\n🛑 SL: {round(sl,2)}\n"
+                        f"📝 AI: {ai_verdict}"
                     )
                     self.send(msg)
                     self.positions[name] = signal_type 
+                    print(f"✅ Message sent for {name}!")
                     time.sleep(2)
-                    break 
+                    break
+                else:
+                    print(f"😴 No setup for {name}")
 
-    # --- СПОТ (Только накопление) ---
     def check_spot(self):
-        print("--- 🏦 Spot Check ---")
-        for name, symbol in SPOT_SYMBOLS.items():
-            if self.spot_positions[name] == "BUY": continue
-            time.sleep(0.1)
-            df = self.get_candles(symbol, "4H", limit=100)
-            if df is None: continue
-            rsi = ta.rsi(df["c"], length=14).iloc[-1]
-            price = df["c"].iloc[-1]
-
-            if rsi < 35: # Только сильные просадки
-                ai_verdict, _ = self.ask_ai("SPOT", name, price, round(rsi,1), 0, "DIP", "ACCUMULATE")
-                if "BUY" in str(ai_verdict).upper():
-                    self.send(f"🏦 **SPOT BUY**\n#{name} @ {price}\n📉 RSI: {rsi}")
-                    self.spot_positions[name] = "BUY"
-                    time.sleep(2)
+        # Спот пока пропустим, фокус на фьючерсах
+        pass
 
     def analyze(self):
         self.check_futures()
