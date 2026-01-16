@@ -82,18 +82,28 @@ class TradingAgent:
             return None
 
     def ask_ai(self, mode, symbol, price, rsi, adx, trend, direction):
-        strategy_name = "SCALP_V2_DEBUG"
+        strategy_name = "SCALP_MULTI_TF"
         
-        print(f"🧠 AI asking about {symbol}...")
+        # Определяем стиль торговли от таймфрейма (передается в аргументе trend или direction)
+        # Если таймфрейм 5m - режим "Aggressive", если 15m - "Conservative"
+        tf_mode = "AGGRESSIVE (Fast entry)" if "5m" in trend else "CONFIRMATION (Trend follow)"
+
+        print(f"⚡ AI Analyzing {symbol} [{tf_mode}]...")
 
         json_template = '{"Confidence": int, "Verdict": "BUY" or "SELL" or "WAIT", "Reason": "text"}'
         
         system_prompt = (
-            f"Ты — Скальпер. Рынок может быть тихим.\n"
-            f"Твоя задача: Найти ЛЮБУЮ возможность заработать 0.5%.\n"
-            f"Не будь слишком строгим. Если тренд есть — действуй.\n"
-            f"Context: {symbol}, {direction}, RSI={rsi}, ADX={adx}.\n"
-            f"Format: {json_template}"
+            f"Ты — Профессиональный Скальпер. Твой режим: {tf_mode}.\n"
+            f"АКТИВ: {symbol}. ЦЕНА: {price}.\n"
+            f"ИНДИКАТОРЫ: RSI={rsi}, ADX={adx}.\n\n"
+            f"ПРАВИЛА ДЛЯ 5m (Минутки):\n"
+            f"1. Ищи быстрые отскоки (RSI < 25 или RSI > 75). Это твои лучшие входы.\n"
+            f"2. Если ADX > 30 — входи на пробой EMA, не бойся перекупленности.\n"
+            f"3. Твой TP короткий (0.5-1%), SL жесткий.\n\n"
+            f"ПРАВИЛА ДЛЯ 15m:\n"
+            f"1. Это подтверждение тренда. Если RSI нейтрален (45-55) — WAIT.\n"
+            f"2. Входи только если тренд совпадает с 5m.\n"
+            f"ФОРМАТ ОТВЕТА (JSON): {json_template}"
         )
         
         user_prompt = f"Price: {price}. Should we enter {direction}?"
@@ -120,8 +130,9 @@ class TradingAgent:
         return "Skip", strategy_name
 
     def check_futures(self):
-        print("\n--- 🚀 Checking Futures (15m) ---")
-        timeframes = ["15m"]
+        print("--- ⚡ Checking Futures (Scalping 5m & 15m) ---")
+        # Используем 5 минут для быстрых сделок
+        timeframes = ["5m", "15m"]
         
         for name, info in FUTURES_SYMBOLS.items():
             symbol = info["id"]
