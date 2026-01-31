@@ -1,23 +1,46 @@
 import os
-import time
-from agent import TradingAgent
+from lumibot.brokers import Ccxt
+from lumibot.traders import Trader
+from strategy import DeepSeekScalper
 
+# --- НАСТРОЙКИ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY")
 
-if not DEEPSEEK_KEY:
-    print("❌ ОШИБКА: Не задан DEEPSEEK_API_KEY")
-    exit()
+# API Ключи от Биржи (OKX)
+# Вам нужно добавить их в .env файл!
+API_KEY = os.getenv("OKX_API_KEY")
+API_SECRET = os.getenv("OKX_SECRET_KEY")
+API_PASSWORD = os.getenv("OKX_PASSWORD") # OKX требует Passphrase
 
-agent = TradingAgent(BOT_TOKEN, CHAT_ID, DEEPSEEK_KEY)
-agent.send("🤖 AI Agent by Azim Activated")
+# Настройка Брокера (OKX Swap)
+broker_config = {
+    "exchange_id": "okx",
+    "apiKey": API_KEY,
+    "secret": API_SECRET,
+    "password": API_PASSWORD,
+    "options": {"defaultType": "swap"} # Важно: торгуем фьючерсами (свопами)
+}
 
-while True:
-    try:
-        agent.analyze()
-        print("Waiting 60s...")
-        time.sleep(60)
-    except Exception as e:
-        print(f"Critical Loop Error: {e}")
-        time.sleep(60)
+broker = Ccxt(broker_config)
+
+# Настройка Стратегии
+strategy_params = {
+    "symbol": "BTC/USDT:USDT", # Формат символа для CCXT OKX Swap
+    "timeframe": "5m",
+    "deepseek_key": DEEPSEEK_KEY,
+    "telegram_token": BOT_TOKEN,
+    "chat_id": CHAT_ID
+}
+
+# Создаем стратегию
+strategy = DeepSeekScalper(
+    broker=broker, 
+    parameters=strategy_params
+)
+
+# Запускаем трейдера
+trader = Trader()
+trader.add_strategy(strategy)
+trader.run_all()
