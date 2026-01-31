@@ -1,6 +1,6 @@
-requests
-openai
+lumibot
 ccxt
-python-dotenv>=1.0.0
 pandas
 pandas_ta
+openai
+requests
