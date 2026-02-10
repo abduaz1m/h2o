@@ -1,6 +1,4 @@
-lumibot
-ccxt
 pandas
 pandas_ta
-openai
 requests
+openai
